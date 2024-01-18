@@ -100,6 +100,7 @@ class FixAblate : public Fix {
   void set_delta();
   void decrement();
   void sync();
+  void sync_explicit();
   void epsilon_adjust();
   void push_lohi();
   void comm_neigh_corners(int);
