@@ -56,6 +56,8 @@ void CreateISurf::command(int narg, char **arg)
     error->all(FLERR,"Cannot create_isurf before grid is defined");
   if (surf->implicit && surf->exist)
     error->all(FLERR,"Cannot have pre-existing implicit surfaces");
+  if (!surf->distributed)
+    error->all(FLERR,"Surface type must be distributed");
 
   int dim = domain->dimension;
 
@@ -63,18 +65,18 @@ void CreateISurf::command(int narg, char **arg)
 
   // grid group
   ggroup = grid->find_group(arg[0]);
-  if (ggroup < 0) error->all(FLERR,"Read_isurf grid group ID does not exist");
+  if (ggroup < 0) error->all(FLERR,"Create_isurf grid group ID does not exist");
 
   // ablate fix
   char *ablateID = arg[1];
   int ifix = modify->find_fix(ablateID);
   if (ifix < 0)
-    error->all(FLERR,"Fix ID for read_surf does not exist");
+    error->all(FLERR,"Fix ID for create_isurf does not exist");
   if (strcmp(modify->fix[ifix]->style,"ablate") != 0)
-    error->all(FLERR,"Fix for read_surf is not a fix ablate");
+    error->all(FLERR,"Fix for create_isurf is not a fix ablate");
   ablate = (FixAblate *) modify->fix[ifix];
   if (ggroup != ablate->igroup)
-    error->all(FLERR,"Read_surf group does not match fix ablate group");
+    error->all(FLERR,"Create_isurf group does not match fix ablate group");
 
   // threshold for corner value
   thresh = input->numeric(FLERR,arg[2]);
@@ -85,8 +87,6 @@ void CreateISurf::command(int narg, char **arg)
   if (strcmp(arg[3],"inout") == 0) aveFlag = 0;
   else if (strcmp(arg[3],"ave") == 0) aveFlag = 1;
   else error->all(FLERR,"Unknown surface corner mode called");
-
-  surf->distributed = 1; // must be distributed with implicit I think
 
   // nxyz already takes into account subcells
   // find corner values for all grid cells initially
@@ -104,6 +104,7 @@ void CreateISurf::command(int narg, char **arg)
   MPI_Barrier(world);
 
   // remove old explicit surfaces
+  // this is technically done when ablate calls create_surf
   remove_old();
 
   surf->implicit = 1;
@@ -111,7 +112,7 @@ void CreateISurf::command(int narg, char **arg)
 
   tvalues = NULL; // TODO: Add per-surface type
   int cpushflag = 0; // don't push
-  char *sgroupID = arg[0]; // all surfaces
+  char *sgroupID = arg[0]+1; // create new group
 
   ablate->store_corners(nxyz[0],nxyz[1],nxyz[2],corner,xyzsize,
                   icvalues,tvalues,thresh,sgroupID,cpushflag);
@@ -970,19 +971,12 @@ int CreateISurf::get_corner(double dcx, double dcy, double dcz)
 ------------------------------------------------------------------------- */
 void CreateISurf::remove_old()
 {
-  // copied from remove_surf.cpp
+  // copied from first half of create_surfs in fix_ablate.cpp
   if (me == 0)
     if (screen) fprintf(screen,"Removing explicit surfs ...\n");
 
   if (particle->exist) particle->sort();
   MPI_Barrier(world);
-
-  surf->nsurf = 0;
-  surf->exist = 0;
-
-  surf->setup_owned();
-  grid->unset_neighbors();
-  grid->remove_ghosts();
 
   if (particle->exist && grid->nsplitlocal) {
     Grid::ChildCell *cells = grid->cells;
@@ -992,25 +986,12 @@ void CreateISurf::remove_old()
         grid->combine_split_cell_particles(icell,1);
   }
 
+  // none of these calls depend on surface type
+  grid->unset_neighbors();
+  grid->remove_ghosts();
   grid->clear_surf();
-  MPI_Barrier(world);
+  surf->clear();
 
-  if (particle->exist && grid->nsplitlocal) {
-    Grid::ChildCell *cells = grid->cells;
-    int nglocal = grid->nlocal;
-    for (int icell = 0; icell < nglocal; icell++)
-      if (cells[icell].nsplit > 1)
-        grid->assign_split_cell_particles(icell);
-  }
-  MPI_Barrier(world);
-
-  grid->setup_owned();
-  grid->acquire_ghosts();
-  grid->reset_neighbors();
-  comm->reset_neighbors();
-
-  grid->set_inout();
-  grid->type_check();
   MPI_Barrier(world);
 
   if (me == 0)
