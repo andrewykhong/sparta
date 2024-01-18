@@ -399,8 +399,8 @@ void ComputeISurfGrid::surf_tally(int isurf, int icell, int reaction,
       vec[k++] -= 0.5*mvv2e * (ivsqpost + jvsqpost - vsqpre) * fluxscale;
       break;
     case KEIN:
-      vsqpre = origmass * MathExtra::lensq3(vorig);
-      vec[k++] += 0.5*mvv2e * vsqpre * fluxscale;
+      vsqpre = origmass * MathExtra::lensq3(vorig)  * 2.07e-5;
+      vec[k++] += 0.5*mvv2e * (vsqpre) * fluxscale;
       break;
     case EROT:
       if (ip) ierot = ip->erot;

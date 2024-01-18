@@ -36,6 +36,7 @@ class CreateISurf : protected Pointers {
 
  protected:
   int me,nprocs;
+  int dim;
 
   // For generating implicit surfaces
   int ggroup;               // group id for grid cells
@@ -55,6 +56,9 @@ class CreateISurf : protected Pointers {
   double mind;              // minimum cell length
   double cin, cout;         // in and out corner values
   class FixAblate *ablate;  // ablate fix
+
+  Surf::Line *lines;
+  Surf::Tri *tris;
 
   // functions to set corner values
 
