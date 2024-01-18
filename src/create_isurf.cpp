@@ -26,6 +26,7 @@
 #include "modify.h"
 #include "mpi.h"
 #include "region.h"
+#include "remove_surf.h"
 #include "surf.h"
 
 using namespace SPARTA_NS;
@@ -95,12 +96,12 @@ void CreateISurf::command(int narg, char **arg)
   grid->check_uniform_group(0,nxyz,corner,xyzsize);
 
   // corner points needs one more in each dim
+  // still need this to check if certain corners are within grid in cleanup()
   Nxyz = (nxyz[0]+1)*(nxyz[1]+1);
   if(dim == 3) Nxyz *= (nxyz[2]+1);
 
   // find all corner values
   set_corners();
-  memory->destroy(cvalues);
   MPI_Barrier(world);
 
   // remove old explicit surfaces
@@ -123,12 +124,106 @@ void CreateISurf::command(int narg, char **arg)
 }
 
 /* ----------------------------------------------------------------------
+   create hash for my grid cells in group from readisurf
+   key = index (0 to N-1) of grid cell in Nx by Ny by Nz contiguous block
+   value = my local icell
+   NOTE: could use count to prealloc the hash size
+
+   Returns number of unique corner points
+------------------------------------------------------------------------- */
+
+void CreateISurf::create_hash()
+{
+  hash = new MyHash;
+
+  double lo[3];
+  lo[0] = domain->boxlo[0];
+  lo[1] = domain->boxlo[1];
+  lo[2] = domain->boxlo[2];
+
+  Grid::ChildCell *cells = grid->cells;
+  Grid::ChildInfo *cinfo = grid->cinfo;
+
+  int ix,iy,iz,ixyz;
+  bigint index;
+  ncall = 0;
+
+  // do for every corner in grid cell
+  for (int icell = 0; icell < grid->nlocal; icell++) {
+    ix = static_cast<int> ((cells[icell].lo[0]-corner[0]) / xyzsize[0] + 0.5);
+    iy = static_cast<int> ((cells[icell].lo[1]-corner[1]) / xyzsize[1] + 0.5);
+    iz = static_cast<int> ((cells[icell].lo[2]-corner[2]) / xyzsize[2] + 0.5);
+
+    ixyz = get_corner(ix,iy,iz);
+    // unique corner not in hash
+    if (hash->find(ixyz) == hash->end()) {
+      (*hash)[ixyz] = icell;
+      ncall++;
+    }
+
+    ixyz = get_corner(ix+1,iy,iz);
+    // unique corner not in hash
+    if (hash->find(ixyz) == hash->end()) {
+      (*hash)[ixyz] = icell;
+      ncall++;
+    }
+
+    ixyz = get_corner(ix,iy+1,iz);
+    // unique corner not in hash
+    if (hash->find(ixyz) == hash->end()) {
+      (*hash)[ixyz] = icell;
+      ncall++;
+    }
+
+    ixyz = get_corner(ix+1,iy+1,iz);
+    // unique corner not in hash
+    if (hash->find(ixyz) == hash->end()) {
+      (*hash)[ixyz] = icell;
+      ncall++;
+    }
+
+    if(dim==3) {
+      ixyz = get_corner(ix,iy,iz+1);
+      // unique corner not in hash
+      if (hash->find(ixyz) == hash->end()) {
+        (*hash)[ixyz] = icell;
+        ncall++;
+      }
+
+      ixyz = get_corner(ix+1,iy,iz+1);
+      // unique corner not in hash
+      if (hash->find(ixyz) == hash->end()) {
+        (*hash)[ixyz] = icell;
+        ncall++;
+      }
+
+      ixyz = get_corner(ix,iy+1,iz+1);
+      // unique corner not in hash
+      if (hash->find(ixyz) == hash->end()) {
+        (*hash)[ixyz] = icell;
+        ncall++;
+      }
+
+      ixyz = get_corner(ix+1,iy+1,iz+1);
+      // unique corner not in hash
+      if (hash->find(ixyz) == hash->end()) {
+        (*hash)[ixyz] = icell;
+        ncall++;
+      }
+    }
+  }
+}
+
+/* ----------------------------------------------------------------------
    Determines corner values given an explicit surface. Cvalues then used
    later in ablate to create the implicit surfaces
 ------------------------------------------------------------------------- */
 
 void CreateISurf::set_corners()
 {
+  // map local grid to numbers [0,grid->nlocal-1]
+  create_hash();
+
   // first shift everything down by thresh
   // later shift back
   cout = 0.0;
@@ -137,15 +232,15 @@ void CreateISurf::set_corners()
   // cvalues is the grid (no overlaps)
   // icvalues is setting each corner for each cell based on cvalues
   // .. icvalues is cvalues in read_isurf and fix_ablate
-  memory->create(cvalues,Nxyz,"createisurf:cvalues");
-  for (int i = 0; i < Nxyz; i++) cvalues[i] = -1.0;
-
+  // size is number of unique cell corners in this proc
+  memory->create(cvalues,ncall,"createisurf:cvalues");
+  for (int i = 0; i < ncall; i++) cvalues[i] = -1.0;
 
   // mvalues stores minimum param
   // also used to determine side
-  memory->create(mvalues,Nxyz,"createisurf:mvalues");
+  memory->create(mvalues,ncall,"createisurf:mvalues");
   // svalues stores side of minimum param
-  memory->create(svalues,Nxyz,"createisurf:svalues");
+  memory->create(svalues,ncall,"createisurf:svalues");
   // array to keep track of param between corners
 
   // find corner values for all cells with surfaces
@@ -154,18 +249,13 @@ void CreateISurf::set_corners()
 
   if(dim==2) {
     ncorners = 4;
-    memory->create(icvalues,grid->nlocal,4,"createisurf:icvalues");
-    for (int i = 0; i < grid->nlocal; i++) {
-      for (int j = 0; j < ncorners; j++)
-        icvalues[i][j] = 0.0;
-    }
 
     // each corner has 4 neighbors
     // -x, +x, -y, +y
     npairs = 4;
-    memory->create(ivalues,Nxyz,npairs,"createisurf:ivalues");
+    memory->create(ivalues,ncall,npairs,"createisurf:ivalues");
     
-    for(int ic = 0; ic < Nxyz; ic++) {
+    for(int ic = 0; ic < ncall; ic++) {
       svalues[ic] = -1;
       mvalues[ic] = -1.0;
       for(int jc = 0; jc < npairs; jc++) ivalues[ic][jc] = -1.0;
@@ -175,24 +265,19 @@ void CreateISurf::set_corners()
     surface_edge2d();
   } else {
     ncorners = 8;
-    memory->create(icvalues,grid->nlocal,8,"createisurf:icvalues");
-    for (int i = 0; i < grid->nlocal; i++) {
-      for (int j = 0; j < ncorners; j++)
-        icvalues[i][j] = 0.0;
-    }
 
     // each corner has 6 neighbors
     // -x, +x, -y, +y, -z, +z
     npairs = 6;
-    memory->create(ivalues,Nxyz,npairs,"createisurf:ivalues");
+    memory->create(ivalues,ncall,npairs,"createisurf:ivalues");
     
-    for(int ic = 0; ic < Nxyz; ic++) {
+    for(int ic = 0; ic < ncall; ic++) {
       svalues[ic] = -1;
       mvalues[ic] = -1.0;
       for(int jc = 0; jc < npairs; jc++) ivalues[ic][jc] = -1.0;
     }
     
-    for(int ic = 0; ic < Nxyz; ic++) {
+    for(int ic = 0; ic < ncall; ic++) {
       svalues[ic] = -1;
       mvalues[ic] = -1.0;
       for(int jc = 0; jc < npairs; jc++) ivalues[ic][jc] = -1.0;
@@ -206,9 +291,9 @@ void CreateISurf::set_corners()
   cleanup();
 
   // free up memory since these are no longer needed
-  memory->destroy(ivalues);
-  memory->destroy(mvalues);
-  memory->destroy(svalues);
+  memory->sfree(ivalues);
+  memory->sfree(mvalues);
+  memory->sfree(svalues);
 
   // initialize corner point matrix for fix-ablate
   if(dim==2) {
@@ -235,27 +320,28 @@ void CreateISurf::set_corners()
     lc[1] = cells[icell].lo[1];
     lc[2] = cells[icell].lo[2];
 
-    xyzcell = get_cxyz(ic,lc);
+    xyzcell = (*hash)[get_cxyz(ic,lc)];
     icvalues[icell][0] = cvalues[xyzcell];
-    xyzcell = get_corner(ic[0]+1, ic[1], ic[2]);
+    xyzcell = (*hash)[get_corner(ic[0]+1, ic[1], ic[2])];
     icvalues[icell][1] = cvalues[xyzcell];
-    xyzcell = get_corner(ic[0], ic[1]+1, ic[2]);
+    xyzcell = (*hash)[get_corner(ic[0], ic[1]+1, ic[2])];
     icvalues[icell][2] = cvalues[xyzcell];
-    xyzcell = get_corner(ic[0]+1, ic[1]+1, ic[2]);
+    xyzcell = (*hash)[get_corner(ic[0]+1, ic[1]+1, ic[2])];
     icvalues[icell][3] = cvalues[xyzcell];
 
 
     if(dim==3) {
-      xyzcell = get_corner(ic[0], ic[1], ic[2]+1);
+      xyzcell = (*hash)[get_corner(ic[0], ic[1], ic[2]+1)];
       icvalues[icell][4] = cvalues[xyzcell];
-      xyzcell = get_corner(ic[0]+1, ic[1], ic[2]+1);
+      xyzcell = (*hash)[get_corner(ic[0]+1, ic[1], ic[2]+1)];
       icvalues[icell][5] = cvalues[xyzcell];
-      xyzcell = get_corner(ic[0], ic[1]+1, ic[2]+1);
+      xyzcell = (*hash)[get_corner(ic[0], ic[1]+1, ic[2]+1)];
       icvalues[icell][6] = cvalues[xyzcell];
-      xyzcell = get_corner(ic[0]+1, ic[1]+1, ic[2]+1);
+      xyzcell = (*hash)[get_corner(ic[0]+1, ic[1]+1, ic[2]+1)];
       icvalues[icell][7] = cvalues[xyzcell];
     }
   }
+  memory->sfree(cvalues);
   return;
 }
 
@@ -326,8 +412,11 @@ void CreateISurf::surface_edge2d()
 
       // get index for p1 and p2
       // c1 is always lower from above
-      c1 = get_corner(pi[0], pi[1], pi[2]);
-      c2 = get_corner(pj[0], pj[1], pj[2]);
+      c1 = (*hash)[get_corner(pi[0], pi[1], pi[2])];
+      c2 = (*hash)[get_corner(pj[0], pj[1], pj[2])];
+
+      //c1 = get_corner(pi[0], pi[1], pi[2]);
+      //c2 = get_corner(pj[0], pj[1], pj[2]);
 
       // test all surfs+corners to see if any hit
       for (int m = 0; m < nsurf; m++) {
@@ -462,8 +551,11 @@ void CreateISurf::surface_edge3d()
       pj[2] = cz[j];
 
       // get corners
-      c1 = get_corner(pi[0], pi[1], pi[2]);
-      c2 = get_corner(pj[0], pj[1], pj[2]);
+      c1 = (*hash)[get_corner(pi[0], pi[1], pi[2])];
+      c2 = (*hash)[get_corner(pj[0], pj[1], pj[2])];
+
+      //c1 = get_corner(pi[0], pi[1], pi[2]);
+      //c2 = get_corner(pj[0], pj[1], pj[2]);
 
       // test all surfs+corners to see if any hit
       for (int m = 0; m < nsurf; m++) {
@@ -537,12 +629,6 @@ void CreateISurf::set_inout()
   double cl[3], ch[3]; // cell bounds
   int itype, sval, xyzcell, cxyz[3];
   for(int icell = 0; icell < grid->nlocal; icell++) {
-
-    cl[0] = cells[icell].lo[0];
-    cl[1] = cells[icell].lo[1];
-    cl[2] = cells[icell].lo[2];
-    xyzcell = get_cxyz(cxyz,cl);
-
     // itype = 1 - fully outside
     // itype = 2 - fully inside
     // itype = 3 - has surfaces
@@ -560,23 +646,28 @@ void CreateISurf::set_inout()
       continue;
     }
 
+    cl[0] = cells[icell].lo[0];
+    cl[1] = cells[icell].lo[1];
+    cl[2] = cells[icell].lo[2];
+
     // set corners if not already set
+    xyzcell = (*hash)[get_cxyz(cxyz,cl)];
     if(svalues[xyzcell] < 0) svalues[xyzcell] = sval;
-    xyzcell = get_corner(cxyz[0]+1, cxyz[1], cxyz[2]);
+    xyzcell = (*hash)[get_corner(cxyz[0]+1, cxyz[1], cxyz[2])];
     if(svalues[xyzcell] < 0) svalues[xyzcell] = sval;
-    xyzcell = get_corner(cxyz[0], cxyz[1]+1, cxyz[2]);
+    xyzcell = (*hash)[get_corner(cxyz[0], cxyz[1]+1, cxyz[2])];
     if(svalues[xyzcell] < 0) svalues[xyzcell] = sval;
-    xyzcell = get_corner(cxyz[0]+1, cxyz[1]+1, cxyz[2]);
+    xyzcell = (*hash)[get_corner(cxyz[0]+1, cxyz[1]+1, cxyz[2])];
     if(svalues[xyzcell] < 0) svalues[xyzcell] = sval;
 
     if(dim==3) {
-      xyzcell = get_corner(cxyz[0], cxyz[1], cxyz[2]+1);
+      xyzcell = (*hash)[get_corner(cxyz[0], cxyz[1], cxyz[2]+1)];
       if(svalues[xyzcell] < 0) svalues[xyzcell] = sval;
-      xyzcell = get_corner(cxyz[0]+1, cxyz[1], cxyz[2]+1);
+      xyzcell = (*hash)[get_corner(cxyz[0]+1, cxyz[1], cxyz[2]+1)];
       if(svalues[xyzcell] < 0) svalues[xyzcell] = sval;
-      xyzcell = get_corner(cxyz[0], cxyz[1]+1, cxyz[2]+1);
+      xyzcell = (*hash)[get_corner(cxyz[0], cxyz[1]+1, cxyz[2]+1)];
       if(svalues[xyzcell] < 0) svalues[xyzcell] = sval;
-      xyzcell = get_corner(cxyz[0]+1, cxyz[1]+1, cxyz[2]+1);
+      xyzcell = (*hash)[get_corner(cxyz[0]+1, cxyz[1]+1, cxyz[2]+1)];
       if(svalues[xyzcell] < 0) svalues[xyzcell] = sval;
     }
   }
@@ -595,7 +686,7 @@ void CreateISurf::cleanup()
   while(!filled) {
     filled = 1;
 
-    for(int i = 0; i < Nxyz; i++) {
+    for(int i = 0; i < ncall; i++) {
       if(svalues[i] == 0 || svalues[i] == 1) continue;
 
       // try x-neighbor
@@ -655,7 +746,7 @@ void CreateISurf::cleanup()
   if(aveFlag) {
     int nval;
     double ivalsum;
-    for(int i = 0; i < Nxyz; i++) {
+    for(int i = 0; i < ncall; i++) {
       ivalsum = 0.0;
       if(svalues[i] == 0) cvalues[i] = cout;
       else {
@@ -682,13 +773,13 @@ void CreateISurf::cleanup()
           cvalues[i] = param2in(ivalsum,0.0);
         }
       }
-    }// end "for" for grid cells
+    }// end "for" for all corners
 
   } else {
-    for(int i = 0; i < Nxyz; i++) {
+    for(int i = 0; i < ncall; i++) {
       if(svalues[i] == 0) cvalues[i] = cout;
       else if(svalues[i] == 1) cvalues[i] = cin;
-    }// end "for" for grid cells
+    }// end "for" for all corners
   }
 }
 
@@ -967,10 +1058,13 @@ int CreateISurf::get_corner(double dcx, double dcy, double dcz)
 }
 
 /* ----------------------------------------------------------------------
-   Removes old explicit surfaces (assumes distributed)
+   Removes old explicit surfaces (assumes distributed). Effectively calls
+   remove_surf command
 ------------------------------------------------------------------------- */
 void CreateISurf::remove_old()
 {
+  int i,n;
+
   // copied from remove_surf
   if (me == 0)
     if (screen) fprintf(screen,"Removing explicit surfs ...\n");
@@ -978,11 +1072,18 @@ void CreateISurf::remove_old()
   if (particle->exist) particle->sort();
   MPI_Barrier(world);
 
+  int nsurf_old = surf->nsurf;
+
+  // below is same as remove() from remove_surf.cpp
   int nbytes;
   if(dim==2) nbytes = sizeof(Surf::Line);
   else nbytes = sizeof(Surf::Tri);
 
+  lines = NULL;
+  tris = NULL;
   int nsurf = surf->nown;
+
+  // assume distributed
   if(dim==2) {
     lines = (Surf::Line *) memory->smalloc(nsurf*nbytes,"createisurf::lines");
     memcpy(lines,surf->mylines,nsurf*nbytes);
@@ -991,24 +1092,99 @@ void CreateISurf::remove_old()
     memcpy(tris,surf->mytris,nsurf*nbytes);
   }
 
-  bigint ndiscard_me = nsurf;
-  nsurf = 0; // remove all explicit surfaces
+  customvalues = NULL; // same as cvalues from remove_surf
+  int ncustom = surf->ncustom;
+  int ncbytes = 0;
+
+  // DEBUG
+  int nvalues_custom;
+
+  if (ncustom) {
+    nvalues_custom = surf->extract_custom(customvalues);
+    ncbytes = (1+nvalues_custom) * sizeof(double);
+  }
+
+  // remove surfs in group, both from lines/tris and cvalues
+
+  // 0 - all surfs
+  int groupbit = surf->bitmask[0];
+  n = 0;
+  for (i = 0; i < nsurf; i++) {
+    if (dim == 2) {
+      if (lines[i].mask & groupbit) continue;
+      if (i != n) memcpy(&lines[n],&lines[i],nbytes);
+    } else {
+      if (tris[i].mask & groupbit) continue;
+      if (i != n) memcpy(&tris[n],&tris[i],nbytes);
+    }
+    if (ncustom && i != n) memcpy(customvalues[n],customvalues[i],ncbytes);
+    n++;
+  }
+
+  bigint ndiscard_me = nsurf - n;
+  nsurf = n;
 
   bigint ndiscard;
   MPI_Allreduce(&ndiscard_me,&ndiscard,1,MPI_SPARTA_BIGINT,MPI_SUM,world);
 
-  // will always have surfaces discarded
-  // since all surfaces are deleted, offset is zero
-  // not needed
-  bigint bnsurf = nsurf;
-  bigint offset;
-  MPI_Scan(&bnsurf,&offset,1,MPI_SPARTA_BIGINT,MPI_SUM,world);
+  // if removed any surfs, renumber surf IDs across all procs
 
-  // won't enter loop
-  if(dim == 2)
-    for(int i = 0; i < nsurf; i++) lines[i].id = static_cast<surfint> (offset+i+1);
-  else
-    for(int i = 0; i < nsurf; i++) tris[i].id = static_cast<surfint> (offset+i+1);
+  if (ndiscard) {
+    bigint bnsurf = nsurf;
+    bigint offset;
+    MPI_Scan(&bnsurf,&offset,1,MPI_SPARTA_BIGINT,MPI_SUM,world);
+    offset -= bnsurf;
+
+    if (dim == 2)
+      for (i = 0; i < nsurf; i++)
+	      lines[i].id = static_cast<surfint> (offset + i + 1);
+    else
+      for (i = 0; i < nsurf; i++)
+	      tris[i].id = static_cast<surfint> (offset + i + 1);
+
+    surfint id;
+    if (ncustom)
+      for (i = 0; i < nsurf; i++) {
+	      id = static_cast<surfint> (offset + i + 1);
+	      customvalues[i][0] = ubuf(id).d;
+      }
+  }
+  // end remove()
+
+  int nsurf_new = nsurf_old - ndiscard;
+
+  int *index_custom = new int[surf->ncustom];
+  ncustom = 0;
+
+  if (surf->ncustom) {
+    for (int i = 0; i < surf->ncustom; i++) {
+      if (!surf->ename[i]) continue;
+      index_custom[ncustom++] = i;
+    }
+  }
+
+  if (ndiscard) surf->add_surfs(1,nsurf,lines,tris,
+			       ncustom,index_custom,customvalues);
+
+  memory->sfree(lines);
+  memory->sfree(tris);
+  memory->destroy(customvalues);
+  delete [] index_custom;
+
+  // there should be no surfaces left so this shouldn't be needed
+  if (domain->dimension == 2) surf->check_watertight_2d();
+  else surf->check_watertight_3d();
+
+  MPI_Barrier(world);
+
+  // reset grid due to changing surfs
+  // assign surfs to grid cells
+
+  surf->setup_owned();
+  grid->unset_neighbors();
+  grid->remove_ghosts();
+
+  // reassign split cell particles to parent split cell
 
   if (particle->exist && grid->nsplitlocal) {
     Grid::ChildCell *cells = grid->cells;
@@ -1018,15 +1194,31 @@ void CreateISurf::remove_old()
         grid->combine_split_cell_particles(icell,1);
   }
 
-  // add remaining surfs which is none
-  // set ncustom to zero
-  //surf->add_surfs(1,nsurf,lines,tris,0,
-
-  // none of these calls depend on surface type
-  grid->unset_neighbors();
-  grid->remove_ghosts();
   grid->clear_surf();
-  surf->clear();
+  if (surf->exist) grid->surf2grid(1);
+
+  // reassign particles in split cells to sub cell owner
+
+  if (particle->exist && grid->nsplitlocal) {
+    Grid::ChildCell *cells = grid->cells;
+    int nglocal = grid->nlocal;
+    for (int icell = 0; icell < nglocal; icell++)
+      if (cells[icell].nsplit > 1)
+        grid->assign_split_cell_particles(icell);
+  }
+
+  MPI_Barrier(world);
+  double time4 = MPI_Wtime();
+
+  // re-setup owned and ghost cell info
+
+  grid->setup_owned();
+  grid->acquire_ghosts();
+  grid->reset_neighbors();
+  comm->reset_neighbors();
+
+  grid->set_inout();
+  grid->type_check();
 
   MPI_Barrier(world);
 
