@@ -774,6 +774,10 @@ void FixAblate::set_delta()
         celldelta[i] = prefactor * farray[i][im1];
     }
 
+    //for (i = 0; i < nglocal; i++)
+    //  if(celldelta[i] != 0) printf("i: %i; delta: %4.3e\n", i, celldelta[i]);
+    //error->one(FLERR,"check");
+
   } else if (which == VARIABLE) {
     if (nglocal > maxvar) {
       maxvar = grid->maxlocal;

@@ -86,6 +86,8 @@ void CreateISurf::command(int narg, char **arg)
   else if (strcmp(arg[3],"ave") == 0) aveFlag = 1;
   else error->all(FLERR,"Unknown surface corner mode called");
 
+  surf->distributed = 1; // must be distributed with implicit I think
+
   // nxyz already takes into account subcells
   // find corner values for all grid cells initially
   // only store those within ggroup when calling ablate->store
@@ -105,18 +107,17 @@ void CreateISurf::command(int narg, char **arg)
   remove_old();
 
   surf->implicit = 1;
-  //surf->distributed = 1; // <- is this needed?
   surf->exist = 1;
 
   tvalues = NULL; // TODO: Add per-surface type
   int cpushflag = 0; // don't push
-  char *sgroupID = arg[0];
+  char *sgroupID = arg[0]; // all surfaces
 
-  surf->exist = 1;
   ablate->store_corners(nxyz[0],nxyz[1],nxyz[2],corner,xyzsize,
                   icvalues,tvalues,thresh,sgroupID,cpushflag);
 
   if (ablate->nevery == 0) modify->delete_fix(ablateID);
+
   MPI_Barrier(world);
 }
 
@@ -152,7 +153,7 @@ void CreateISurf::set_corners()
 
   if(domain->dimension==2) {
     ncorners = 4;
-    memory->create(icvalues,grid->nlocal,ncorners,"createisurf:icvalues");
+    memory->create(icvalues,grid->nlocal,4,"createisurf:icvalues");
     for (int i = 0; i < grid->nlocal; i++) {
       for (int j = 0; j < ncorners; j++)
         icvalues[i][j] = 0.0;
@@ -173,7 +174,7 @@ void CreateISurf::set_corners()
     surface_edge2d();
   } else {
     ncorners = 8;
-    memory->create(icvalues,grid->nlocal,ncorners,"createisurf:icvalues");
+    memory->create(icvalues,grid->nlocal,8,"createisurf:icvalues");
     for (int i = 0; i < grid->nlocal; i++) {
       for (int j = 0; j < ncorners; j++)
         icvalues[i][j] = 0.0;

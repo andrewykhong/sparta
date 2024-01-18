@@ -1,0 +1,105 @@
+################################################################################
+# 2d flow around porous media
+#
+# Note:
+#  - The "comm/sort” option to the “global” command is used to match MPI runs.
+#  - The “twopass” option is used to match Kokkos runs.
+# The "comm/sort" and "twopass" options should not be used for production runs.
+################################################################################
+
+seed 12345
+dimension 2
+
+
+variable ppc equal 100
+
+variable xncells equal 500
+variable yncells equal 400
+
+variable xmin equal -0.625
+variable xmax equal  0.625
+variable ymin equal -0.5
+variable ymax equal  0.5
+variable zmin equal -0.5
+variable zmax equal  0.5
+
+variable nden equal 1.433e20 
+variable Fnum equal  ${nden}*(${xmax}-${xmin})*(${ymax}-${ymin})*(${zmax}-${zmin})/${ppc}/${xncells}/${yncells}
+
+variable dt equal 4.0e-7
+variable dx equal (${xmax}-${xmin})/${xncells}
+variable dy equal (${ymax}-${ymin})/${yncells}
+variable area equal ${dx}*${dy}
+variable Escale equal ${Fnum}/${area}/${dt}
+
+###################################
+# Print variable values to log file
+###################################
+print               " Simulation Ratio = ${Fnum}"
+print               " dx = ${dx}"
+print               " dy = ${dy}"
+print               " area = ${area}"
+print               " Scale energy by ${Escale}"
+
+global gridcut 0.0 comm/sort yes
+global surfs explicit/distributed
+#global surfs explicit
+
+boundary o o p
+
+create_box ${xmin} ${xmax} ${ymin} ${ymax} ${zmin} ${zmax}
+create_grid ${xncells} ${yncells} 1 
+
+balance_grid rcb cell
+
+species air.species N2 O2
+mixture air N2 O2 vstream 6813 0 0 temp 187
+mixture air N2 frac 0.79
+mixture air O2 frac 0.21
+
+global nrho ${nden}
+global fnum ${Fnum}
+
+read_surf data.circle2d invert scale 0.333 0.333 1.0
+
+compute             1 isurf/grid all all kein
+fix                 1 ave/grid all 1 100 100 c_1[*]
+fix                 fablate ablate all 50 7e14 f_1
+
+#fix							fablate ablate all 10 1 random 10
+create_isurf     all fablate 20.0 ave
+
+surf_collide 1 diffuse 1000.0 1.0
+surf_modify all collide 1
+
+
+create_particles    air n 0
+
+collide vss air air.vss
+
+fix in emit/face air xlo twopass
+
+###########
+# Outputs #
+###########
+compute state      thermal/grid all all temp
+compute rhov       grid all all n u v w
+
+#############
+# Transient #
+#############
+fix state         ave/grid all 5 10 50 c_state[*]  ave one
+fix rho           ave/grid all 5 10 50 c_rhov[*]   ave one
+
+dump 1 image all 100 particle.* type type surf one 0.01 particle yes pdiam 0.001 zoom 2
+dump 2 image all 100 field.* type type surf one 0.01 particle no grid f_state
+dump_modify 2 cmap grid 150 20000 cf 0.0 2 min black max red
+dump state grid all 1000 state.* xc yc f_state
+
+timestep ${dt}
+
+stats		    5
+stats_style	    step cpu np nattempt ncoll nscoll nscheck
+
+run 0
+#run                 1500

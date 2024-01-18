@@ -28,7 +28,7 @@
 using namespace SPARTA_NS;
 
 enum{NUM,NUMWT,MFLUX,FX,FY,FZ,PRESS,XPRESS,YPRESS,ZPRESS,
-     XSHEAR,YSHEAR,ZSHEAR,KE,EROT,EVIB,ETOT};
+     XSHEAR,YSHEAR,ZSHEAR,KE,KEIN,EROT,EVIB,ETOT};
 
 #define DELTA 4096
 
@@ -67,6 +67,7 @@ ComputeISurfGrid::ComputeISurfGrid(SPARTA *sparta, int narg, char **arg) :
     else if (strcmp(arg[iarg],"shy") == 0) which[nvalue++] = YSHEAR;
     else if (strcmp(arg[iarg],"shz") == 0) which[nvalue++] = ZSHEAR;
     else if (strcmp(arg[iarg],"ke") == 0) which[nvalue++] = KE;
+    else if (strcmp(arg[iarg],"kein") == 0) which[nvalue++] = KEIN;
     else if (strcmp(arg[iarg],"erot") == 0) which[nvalue++] = EROT;
     else if (strcmp(arg[iarg],"evib") == 0) which[nvalue++] = EVIB;
     else if (strcmp(arg[iarg],"etot") == 0) which[nvalue++] = ETOT;
@@ -396,6 +397,10 @@ void ComputeISurfGrid::surf_tally(int isurf, int icell, int reaction,
       if (jp) jvsqpost = jmass * MathExtra::lensq3(jp->v);
       else jvsqpost = 0.0;
       vec[k++] -= 0.5*mvv2e * (ivsqpost + jvsqpost - vsqpre) * fluxscale;
+      break;
+    case KEIN:
+      vsqpre = origmass * MathExtra::lensq3(vorig);
+      vec[k++] += 0.5*mvv2e * vsqpre * fluxscale;
       break;
     case EROT:
       if (ip) ierot = ip->erot;
