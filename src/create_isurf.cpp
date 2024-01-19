@@ -114,12 +114,11 @@ void CreateISurf::command(int narg, char **arg)
   char *sgroupID = arg[0]+1; // create new group
 
   ablate->store_corners(nxyz[0],nxyz[1],nxyz[2],corner,xyzsize,
-                  icvalues,tvalues,thresh,sgroupID,cpushflag);
+                  icvalues,tvalues,thresh,sgroupID,cpushflag,aveFlag);
 
   if (ablate->nevery == 0) modify->delete_fix(ablateID);
 
   MPI_Barrier(world);
-  printf("implicit? %i\n", surf->implicit);
 }
 
 /* ----------------------------------------------------------------------
@@ -139,7 +138,6 @@ void CreateISurf::set_corners()
   // .. icvalues is cvalues in read_isurf and fix_ablate
   memory->create(cvalues,Nxyz,"createisurf:cvalues");
   for (int i = 0; i < Nxyz; i++) cvalues[i] = -1.0;
-
 
   // mvalues stores minimum param
   // also used to determine side
@@ -201,9 +199,9 @@ void CreateISurf::set_corners()
   cleanup();
 
   // free up memory since these are no longer needed
-  memory->destroy(ivalues);
-  memory->destroy(mvalues);
-  memory->destroy(svalues);
+  memory->sfree(ivalues);
+  memory->sfree(mvalues);
+  memory->sfree(svalues);
 
   // initialize corner point matrix for fix-ablate
   if(dim==2) {
@@ -239,7 +237,6 @@ void CreateISurf::set_corners()
     xyzcell = get_corner(ic[0]+1, ic[1]+1, ic[2]);
     icvalues[icell][3] = cvalues[xyzcell];
 
-
     if(dim==3) {
       xyzcell = get_corner(ic[0], ic[1], ic[2]+1);
       icvalues[icell][4] = cvalues[xyzcell];
@@ -251,6 +248,7 @@ void CreateISurf::set_corners()
       icvalues[icell][7] = cvalues[xyzcell];
     }
   }
+  memory->sfree(cvalues);
   return;
 }
 
@@ -580,6 +578,7 @@ void CreateISurf::set_inout()
 
 /* ----------------------------------------------------------------------
   Resolve unknown side values and fill in remaining corner values
+  May not work if the processors are divided too finely
 ------------------------------------------------------------------------- */
 
 void CreateISurf::cleanup()
@@ -667,6 +666,9 @@ void CreateISurf::cleanup()
         else {
           ivalsum /= nval;
           // add small buffer to avoid very small volumes/areas
+          // these seem to get deleted and throws an error in marching
+          // .. indicating neither zero nor two triangles at the cell face
+          // worst case scenario allowed is volume/area of 0.0001
           if(dim == 3) {
             ivalsum = MAX(ivalsum, 0.045);
             ivalsum = MIN(ivalsum, 0.955);
@@ -860,7 +862,7 @@ double CreateISurf::param2in(double param, double v1)
   v0 = (thresh - v1*param) / (1.0 - param);
 
   // bound by limits
-  //v0 = MAX(v0,thresh);
+  v0 = MAX(v0,thresh);
   v0 = MIN(v0,255.0);
   return v0;
 }

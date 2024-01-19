@@ -280,7 +280,7 @@ int FixAblate::setmask()
 void FixAblate::store_corners(int nx_caller, int ny_caller, int nz_caller,
                               double *cornerlo_caller, double *xyzsize_caller,
                               double **cvalues_caller, int *tvalues_caller,
-                              double thresh_caller, char *sgroupID, int pushflag)
+                              double thresh_caller, char *sgroupID, int pushflag, int ctype)
 {
   storeflag = 1;
 
@@ -341,7 +341,7 @@ void FixAblate::store_corners(int nx_caller, int ny_caller, int nz_caller,
 
   // for explicit -> implicit, need to sync values
   if(!surf->implicit == 1) {
-    sync_explicit();
+    sync_explicit(ctype);
     surf->implicit = 1;
   }
 
@@ -530,7 +530,6 @@ void FixAblate::create_surfs(int outflag)
   // if no surfs created, use clear_surf to set all celltypes = OUTSIDE
 
   if (surf->nsurf == 0) {
-    printf("surf->nsurf: %i\n", surf->nsurf);
     surf->exist = 0;
     grid->clear_surf();
   }
@@ -963,14 +962,14 @@ void FixAblate::sync()
      in numerically consistent manner (same order of operations)
 ------------------------------------------------------------------------- */
 
-void FixAblate::sync_explicit()
+void FixAblate::sync_explicit(int ctype)
 {
   int i,ix,iy,iz,jx,jy,jz,ixfirst,iyfirst,izfirst,jcorner;
   int icell,jcell;
   int ntotal;
-  double total;
+  double total, temp;
 
-  comm_neigh_corners(CDELTA);
+  comm_neigh_corners(CVALUE);
 
   // perform update of corner pts for all my owned grid cells
   //   using contributions from all cells that share the corner point
@@ -1039,7 +1038,16 @@ void FixAblate::sync_explicit()
         }
       }
 
-      if(total > 0.01) cvalues[icell][i] = (cvalues[icell][i]+total)/(ntotal+1);
+      // in out values always 0 or 255
+      if(ctype==0) {
+        temp = (cvalues[icell][i]+total)/(ntotal+1);
+        if(temp > 0) cvalues[icell][i] = 255.0;
+        else cvalues[icell][i] = 0.0;
+      } else {
+        temp = (cvalues[icell][i]+total)/(ntotal+1);
+        if(temp > thresh) cvalues[icell][i] = temp;
+        else cvalues[icell][i] = 0.0;
+      }
     }
   }
 }
