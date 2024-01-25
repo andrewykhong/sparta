@@ -341,7 +341,6 @@ void FixAblate::store_corners(int nx_caller, int ny_caller, int nz_caller,
   }
 
   // for explicit -> implicit, need to sync values
-
   if(!surf->implicit == 1) {
     sync_explicit(ctype);
     surf->implicit = 1;

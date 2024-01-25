@@ -57,9 +57,9 @@ void CreateISurf::command(int narg, char **arg)
   if (surf->implicit && surf->exist)
     error->all(FLERR,"Cannot have pre-existing implicit surfaces");
   if (!surf->distributed)
-    error->all(FLERR,"Surface type must be distributed");
+    error->all(FLERR,"Explicit surface must be distributed");
 
-  int dim = domain->dimension;
+  dim = domain->dimension;
 
   if (narg != 4) error->all(FLERR,"Illegal create_isurf command");
 
@@ -138,7 +138,6 @@ void CreateISurf::set_corners()
   memory->create(cvalues,Nxyz,"createisurf:cvalues");
   for (int i = 0; i < Nxyz; i++) cvalues[i] = -1.0;
 
-
   // mvalues stores minimum param
   // also used to determine side
   memory->create(mvalues,Nxyz,"createisurf:mvalues");
@@ -150,7 +149,7 @@ void CreateISurf::set_corners()
   int npairs; // number of points around corner point
   int ncorners; // number of corner points per cell
 
-  if(domain->dimension==2) {
+  if(dim==2) {
     ncorners = 4;
 
     // each corner has 4 neighbors
@@ -194,12 +193,12 @@ void CreateISurf::set_corners()
   cleanup();
 
   // free up memory since these are no longer needed
-  memory->destroy(ivalues);
-  memory->destroy(mvalues);
-  memory->destroy(svalues);
+  memory->sfree(ivalues);
+  memory->sfree(mvalues);
+  memory->sfree(svalues);
 
   // initialize corner point matrix for fix-ablate
-  if(domain->dimension==2) {
+  if(dim==2) {
     memory->create(icvalues,grid->nlocal,ncorners,"createisurf:icvalues");
     for (int i = 0; i < grid->nlocal; i++) {
       for (int j = 0; j < ncorners; j++)
@@ -232,8 +231,7 @@ void CreateISurf::set_corners()
     xyzcell = get_corner(ic[0]+1, ic[1]+1, ic[2]);
     icvalues[icell][3] = cvalues[xyzcell];
 
-
-    if(domain->dimension==3) {
+    if(dim==3) {
       xyzcell = get_corner(ic[0], ic[1], ic[2]+1);
       icvalues[icell][4] = cvalues[xyzcell];
       xyzcell = get_corner(ic[0]+1, ic[1], ic[2]+1);
@@ -244,6 +242,7 @@ void CreateISurf::set_corners()
       icvalues[icell][7] = cvalues[xyzcell];
     }
   }
+  memory->sfree(cvalues);
   return;
 }
 
@@ -260,7 +259,7 @@ void CreateISurf::surface_edge2d()
   double cx[8], cy[8], cz[8]; // store all corners
   double pi[3], pj[3]; // corner coordinate
   Surf::Line *line;
-  Surf::Line *lines = surf->lines;
+  lines = surf->lines;
   surfint *csurfs;
   int isurf, nsurf, side, hitflag;
   double param, oparam;
@@ -389,7 +388,7 @@ void CreateISurf::surface_edge3d()
   double cx[8], cy[8], cz[8]; // store all corners
   double pi[3], pj[3]; // corner coordinate
   Surf::Tri *tri;
-  Surf::Tri *tris = surf->tris;
+  tris = surf->tris;
   surfint *csurfs;
   int isurf, nsurf, hitflag, side;
   double param, oparam;
@@ -557,7 +556,7 @@ void CreateISurf::set_inout()
     xyzcell = get_corner(cxyz[0]+1, cxyz[1]+1, cxyz[2]);
     if(svalues[xyzcell] < 0) svalues[xyzcell] = sval;
 
-    if(domain->dimension==3) {
+    if(dim==3) {
       xyzcell = get_corner(cxyz[0], cxyz[1], cxyz[2]+1);
       if(svalues[xyzcell] < 0) svalues[xyzcell] = sval;
       xyzcell = get_corner(cxyz[0]+1, cxyz[1], cxyz[2]+1);
@@ -573,6 +572,7 @@ void CreateISurf::set_inout()
 
 /* ----------------------------------------------------------------------
   Resolve unknown side values and fill in remaining corner values
+  May not work if the processors are divided too finely
 ------------------------------------------------------------------------- */
 
 void CreateISurf::cleanup()
@@ -612,7 +612,7 @@ void CreateISurf::cleanup()
         continue;
       }
 
-      if(domain->dimension=3) {
+      if(dim=3) {
         // try z-neighbor
         j = i - (nxyz[0]+1)*(nxyz[1]+1);
         if(j >= 0 && ivalues[i][4] < 0) {
@@ -636,7 +636,7 @@ void CreateISurf::cleanup()
   if(!filled) error->one(FLERR,"cannot find reference");
 
   int npairs;
-  if(domain->dimension==2) npairs = 4;
+  if(dim==2) npairs = 4;
   else npairs = 6;
 
   // initially set inside as cin and outside as cout
@@ -660,7 +660,10 @@ void CreateISurf::cleanup()
         else {
           ivalsum /= nval;
           // add small buffer to avoid very small volumes/areas
-          if(domain->dimension == 3) {
+          // these seem to get deleted and throws an error in marching
+          // .. indicating neither zero nor two triangles at the cell face
+          // worst case scenario allowed is volume/area of 0.0001
+          if(dim == 3) {
             ivalsum = MAX(ivalsum, 0.045);
             ivalsum = MIN(ivalsum, 0.955);
           } else {
@@ -853,7 +856,7 @@ double CreateISurf::param2in(double param, double v1)
   v0 = (thresh - v1*param) / (1.0 - param);
 
   // bound by limits
-  //v0 = MAX(v0,thresh);
+  v0 = MAX(v0,thresh);
   v0 = MIN(v0,255.0);
   return v0;
 }
@@ -891,7 +894,7 @@ int CreateISurf::get_cxyz(int *ic, double *lc)
 int CreateISurf::get_cell(int icx, int icy, int icz)
 {
   int icell;
-  if(domain->dimension == 2) icell = icx + icy*nxyz[0];
+  if(dim == 2) icell = icx + icy*nxyz[0];
   else icell = icx + icy*nxyz[0] + icz*nxyz[0]*nxyz[1];
 
   if(icell >= nxyz[0]*nxyz[1]*nxyz[2] || icell < 0) error->one(FLERR,"bad cell from int");
@@ -906,7 +909,7 @@ int CreateISurf::get_cell(int icx, int icy, int icz)
 int CreateISurf::get_corner(int icx, int icy, int icz)
 {
   int icell;
-  if(domain->dimension == 2) icell = icx + icy*(nxyz[0]+1);
+  if(dim == 2) icell = icx + icy*(nxyz[0]+1);
   else icell = icx + icy*(nxyz[0]+1) + icz*(nxyz[0]+1)*(nxyz[1]+1);
 
   if(icell >= Nxyz || icell < 0) {
@@ -942,7 +945,7 @@ int CreateISurf::get_corner(double dcx, double dcy, double dcz)
   }
 
   int icell;
-  if(domain->dimension == 2) icell = ic[0] + ic[1]*(nxyz[0]+1);
+  if(dim == 2) icell = ic[0] + ic[1]*(nxyz[0]+1);
   else icell = ic[0] + ic[1]*(nxyz[0]+1) + ic[2]*(nxyz[0]+1)*(nxyz[1]+1);
 
   if(icell >= Nxyz || icell < 0) {
@@ -955,16 +958,73 @@ int CreateISurf::get_corner(double dcx, double dcy, double dcz)
 }
 
 /* ----------------------------------------------------------------------
-   Removes old explicit surfaces
+   Removes old explicit surfaces (assumes distributed)
 ------------------------------------------------------------------------- */
 void CreateISurf::remove_old()
 {
-  // copied from first half of create_surfs in fix_ablate.cpp
+  // copied from remove_surf
   if (me == 0)
     if (screen) fprintf(screen,"Removing explicit surfs ...\n");
 
   if (particle->exist) particle->sort();
   MPI_Barrier(world);
+
+  int nbytes;
+  if(dim==2) nbytes = sizeof(Surf::Line);
+  else nbytes = sizeof(Surf::Tri);
+
+  lines = NULL;
+  tris = NULL;
+  int nsurf = surf->nown;
+  if(dim==2) {
+    lines = (Surf::Line *) memory->smalloc(nsurf*nbytes,"createisurf::lines");
+    memcpy(lines,surf->mylines,nsurf*nbytes);
+  } else {
+    tris = (Surf::Tri *) memory->smalloc(nsurf*nbytes,"createisurf::tris");
+    memcpy(tris,surf->mytris,nsurf*nbytes);
+  }
+
+  bigint ndiscard_me = nsurf;
+  nsurf = 0; // remove all explicit surfaces
+
+  bigint ndiscard;
+  MPI_Allreduce(&ndiscard_me,&ndiscard,1,MPI_SPARTA_BIGINT,MPI_SUM,world);
+
+  // will always have surfaces discarded
+  // since all surfaces are deleted, offset is zero
+  // not needed
+  bigint bnsurf = nsurf;
+  bigint offset;
+  MPI_Scan(&bnsurf,&offset,1,MPI_SPARTA_BIGINT,MPI_SUM,world);
+
+  // won't enter loop
+  if(dim == 2)
+    for(int i = 0; i < nsurf; i++) lines[i].id = static_cast<surfint> (offset+i+1);
+  else
+    for(int i = 0; i < nsurf; i++) tris[i].id = static_cast<surfint> (offset+i+1);
+
+  int *index_custom = new int[surf->ncustom];
+  customvalues = NULL;
+  surf->add_surfs(1,nsurf,lines,tris,0,index_custom,customvalues);
+
+  memory->sfree(lines);
+  memory->sfree(tris);
+  memory->destroy(customvalues);
+  delete [] index_custom;
+
+  // can check watertight if you want
+  if (dim == 2) surf->check_watertight_2d();
+  else surf->check_watertight_3d();
+  MPI_Barrier(world);
+
+  // reset grid due to changing surfs
+  // assign surfs to grid cells
+
+  surf->setup_owned();
+  grid->unset_neighbors();
+  grid->remove_ghosts();
+
+  // reassign split cell particles to parent split cell
 
   if (particle->exist && grid->nsplitlocal) {
     Grid::ChildCell *cells = grid->cells;
@@ -974,11 +1034,16 @@ void CreateISurf::remove_old()
         grid->combine_split_cell_particles(icell,1);
   }
 
-  // none of these calls depend on surface type
-  grid->unset_neighbors();
-  grid->remove_ghosts();
   grid->clear_surf();
-  surf->clear();
+  MPI_Barrier(world);
+
+  // none of these calls depend on surface type
+  grid->acquire_ghosts();
+  grid->reset_neighbors();
+  comm->reset_neighbors();
+
+  grid->set_inout();
+  grid->type_check();
 
   MPI_Barrier(world);
 

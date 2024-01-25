@@ -1,0 +1,80 @@
+################################################################################
+# 2d flow around porous media
+#
+# Note:
+#  - The "comm/sort” option to the “global” command is used to match MPI runs.
+#  - The “twopass” option is used to match Kokkos runs.
+# The "comm/sort" and "twopass" options should not be used for production runs.
+################################################################################
+
+seed 12345
+dimension 3
+
+variable ppc equal 1
+
+variable xncells equal 416
+variable yncells equal 173
+variable zncells equal 173
+
+variable xmin equal -1.0
+variable xmax equal  1.4
+variable ymin equal -0.5
+variable ymax equal  0.5
+variable zmin equal -0.5
+variable zmax equal  0.5
+
+variable nden equal 3.275e20 
+variable Fnum equal  ${nden}*(${xmax}-${xmin})*(${ymax}-${ymin})*(${zmax}-${zmin})/${ppc}/${xncells}/${yncells}/${zncells}
+
+variable dt equal 7.4247e-8
+#variable dx equal (${xmax}-${xmin})/${xncells}
+#variable dy equal (${ymax}-${ymin})/${yncells}
+#variable area equal ${dx}*${dy}
+
+###################################
+# Print variable values to log file
+###################################
+print               " Simulation Ratio = ${Fnum}"
+
+global gridcut 0.0 comm/sort yes
+global surfs explicit/distributed
+global surfmax 20000
+#global surfs explicit
+
+boundary o o o
+
+create_box ${xmin} ${xmax} ${ymin} ${ymax} ${zmin} ${zmax}
+create_grid ${xncells} ${yncells} ${zncells}
+
+balance_grid rcb cell
+
+species air.species N2
+mixture air N2 vstream 6813 0 0 temp 187
+
+global nrho ${nden}
+global fnum ${Fnum}
+
+read_surf bluntcone.surf scale 0.001 0.001 0.001 
+
+compute             1 isurf/grid all all kein
+fix                 1 ave/grid all 1 100 100 c_1[*]
+fix                 fablate ablate all 100 0.2 f_1
+create_isurf        all fablate 40.5 ave
+
+surf_collide 1 diffuse 1000.0 1.0
+surf_modify all collide 1
+
+create_particles    air n 0
+
+collide vss air air.vss
+
+#############
+# Transient #
+#############
+timestep ${dt}
+
+stats		    1
+stats_style	    step cpu np nattempt ncoll nscoll nscheck
+
+run 0
+write_isurf all ${xncells} ${yncells} ${zncells} isurf.cone fablate precision double

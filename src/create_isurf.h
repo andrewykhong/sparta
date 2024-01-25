@@ -36,8 +36,18 @@ class CreateISurf : protected Pointers {
 
  protected:
   int me,nprocs;
+  int dim;
 
-  // For generating implicit surfaces
+  int ncall;
+#ifdef SPARTA_MAP
+  typedef std::map<bigint,int> MyHash;
+#elif defined SPARTA_UNORDERED_MAP
+  typedef std::unordered_map<bigint,int> MyHash;
+#else
+  typedef std::tr1::unordered_map<bigint,int> MyHash;
+#endif
+  MyHash *hash;
+
   int ggroup;               // group id for grid cells
   double thresh;            // lower threshold for corner values
   double corner[3];         // corners of grid group
@@ -56,8 +66,21 @@ class CreateISurf : protected Pointers {
   double cin, cout;         // in and out corner values
   class FixAblate *ablate;  // ablate fix
 
-  // functions to set corner values
+  // for removing old explicit surfaces
+  Surf::Line *lines;
+  Surf::Tri *tris;
+  double **customvalues;
+  union ubuf {
+    double d;
+    int64_t i;
+    ubuf(double arg) : d(arg) {}
+    ubuf(int64_t arg) : i(arg) {}
+    ubuf(int arg) : i(arg) {}
+  };
 
+  // sets up hash map matching local cell to index
+  void create_hash();
+  // functions to set corner values
   void set_corners();
 
   // sets corner values whose cells have surfaces
