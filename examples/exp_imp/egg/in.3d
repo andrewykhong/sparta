@@ -88,4 +88,4 @@ create_particles    air n 0
 dump 1 image all 100 egg3di.* type type sline yes 0.000 surf one 0.02 zoom 4 particle no view 65 140 box no 0.000
 
 stats		    1
-run 		    10
+run 		    5
