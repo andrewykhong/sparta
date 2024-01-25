@@ -107,15 +107,13 @@ void CreateISurf::command(int narg, char **arg)
   // this is technically done when ablate calls create_surf
   remove_old();
 
-  surf->implicit = 1;
   surf->exist = 1;
-
   tvalues = NULL; // TODO: Add per-surface type
   int cpushflag = 0; // don't push
   char *sgroupID = arg[0]+1; // create new group
 
   ablate->store_corners(nxyz[0],nxyz[1],nxyz[2],corner,xyzsize,
-                  icvalues,tvalues,thresh,sgroupID,cpushflag);
+                  icvalues,tvalues,thresh,sgroupID,cpushflag,aveFlag);
 
   if (ablate->nevery == 0) modify->delete_fix(ablateID);
 
@@ -154,11 +152,6 @@ void CreateISurf::set_corners()
 
   if(domain->dimension==2) {
     ncorners = 4;
-    memory->create(icvalues,grid->nlocal,4,"createisurf:icvalues");
-    for (int i = 0; i < grid->nlocal; i++) {
-      for (int j = 0; j < ncorners; j++)
-        icvalues[i][j] = 0.0;
-    }
 
     // each corner has 4 neighbors
     // -x, +x, -y, +y
@@ -175,11 +168,6 @@ void CreateISurf::set_corners()
     surface_edge2d();
   } else {
     ncorners = 8;
-    memory->create(icvalues,grid->nlocal,8,"createisurf:icvalues");
-    for (int i = 0; i < grid->nlocal; i++) {
-      for (int j = 0; j < ncorners; j++)
-        icvalues[i][j] = 0.0;
-    }
 
     // each corner has 6 neighbors
     // -x, +x, -y, +y, -z, +z
