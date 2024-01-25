@@ -1,4 +1,4 @@
-# png = Linux box/cluster, g++, installed MPI
+# mpi = Linux box/cluster, g++, installed MPI
 
 SHELL = /bin/sh
 

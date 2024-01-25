@@ -38,21 +38,28 @@ int Grid::find_custom(char *name)
 
 /* ----------------------------------------------------------------------
    add a custom attribute with name
-   assumes name does not already exist, else error
+   assumes name does not already exist, except in case of restart
    type = 0/1 for int/double
    size = 0 for vector, size > 0 for array with size columns
+   ghostflag = 1 if ghost cells are included, else 0
    return index of its location;
 ------------------------------------------------------------------------- */
 
-int Grid::add_custom(char *name, int type, int size)
+int Grid::add_custom(char *name, int type, int size, int ghostflag)
 {
   int index;
 
-  // error if name already exists
+  // if name already exists
+  // just return index if a restart script and re-defining the name
+  // else error
 
   index = find_custom(name);
-  if (index >= 0)
-    error->all(FLERR,"Custom grid attribute name already exists");
+  if (index >= 0) {
+    if (custom_restart_flag == NULL || custom_restart_flag[index] == 1)
+      error->all(FLERR,"Custom grid attribute name already exists");
+    custom_restart_flag[index] = 1;
+    return index;
+  }
 
   // use first available NULL entry or allocate a new one
 
@@ -66,6 +73,7 @@ int Grid::add_custom(char *name, int type, int size)
     memory->grow(etype,ncustom,"grid:etype");
     memory->grow(esize,ncustom,"grid:etype");
     memory->grow(ewhich,ncustom,"grid:etype");
+    memory->grow(custom_ghost_flag,ncustom,"grid:etype");
   }
 
   int n = strlen(name) + 1;
@@ -73,6 +81,7 @@ int Grid::add_custom(char *name, int type, int size)
   strcpy(ename[index],name);
   etype[index] = type;
   esize[index] = size;
+  custom_ghost_flag[index] = ghostflag;
 
   if (type == INT) {
     if (size == 0) {
@@ -110,21 +119,22 @@ int Grid::add_custom(char *name, int type, int size)
     }
   }
 
-  allocate_custom(index);
+
+  if (!ghostflag)
+    allocate_custom(index,nlocal);
+  else
+    allocate_custom(index,nlocal+nghost);
 
   return index;
 }
 
 /* ----------------------------------------------------------------------
    allocate vector/array associated with custom attribute with index
-   allocate to local + ghost in case any custom attributes set ghost
    set new values to 0 via memset()
 ------------------------------------------------------------------------- */
 
-void Grid::allocate_custom(int index)
+void Grid::allocate_custom(int index, int n)
 {
-  int n = maxcell;
-
   if (etype[index] == INT) {
     if (esize[index] == 0) {
       int *ivector = memory->create(eivec[ewhich[index]],n,"grid:eivec");
@@ -152,32 +162,26 @@ void Grid::allocate_custom(int index)
    set new values to 0 via memset()
 ------------------------------------------------------------------------- */
 
-void Grid::reallocate_custom(int nold, int nnew)
+void Grid::reallocate_custom(int index, int n)
 {
-  for (int ic = 0; ic < ncustom; ic++) {
-    if (etype[ic] == INT) {
-      if (esize[ic] == 0) {
-        int *ivector = memory->grow(eivec[ewhich[ic]],nnew,"grid:eivec");
-        if (nnew > nold) memset(&ivector[nold],0,(nnew-nold)*sizeof(int));
-      } else {
-        int **iarray = memory->grow(eiarray[ewhich[ic]],
-                                    nnew,eicol[ewhich[ic]],"grid:eiarray");
-        if (nnew > nold)
-          memset(&iarray[nold][0],0,
-                 (nnew-nold)*eicol[ewhich[ic]]*sizeof(int));
-      }
-
+  if (etype[index] == INT) {
+    if (esize[index] == 0) {
+      int *ivector = memory->grow(eivec[ewhich[index]],n,"grid:eivec");
+      if (ivector) memset(ivector,0,n*sizeof(int));
     } else {
-      if (esize[ic] == 0) {
-        double *dvector = memory->grow(edvec[ewhich[ic]],nnew,"grid:edvec");
-        if (nnew > nold) memset(&dvector[nold],0,(nnew-nold)*sizeof(double));
-      } else {
-        double **darray = memory->grow(edarray[ewhich[ic]],
-                                       nnew,edcol[ewhich[ic]],"grid:edarray");
-        if (nnew - nold)
-          memset(&darray[nold][0],0,
-                 (nnew-nold)*edcol[ewhich[ic]]*sizeof(double));
-      }
+      int **iarray = memory->grow(eiarray[ewhich[index]],
+                                  n,eicol[ewhich[index]],"grid:eiarray");
+      if (iarray) memset(&iarray[0][0],0,n*eicol[ewhich[index]]*sizeof(int));
+    }
+
+  } else {
+    if (esize[index] == 0) {
+      double *dvector = memory->grow(edvec[ewhich[index]],n,"grid:edvec");
+      if (dvector) memset(dvector,0,n*sizeof(double));
+    } else {
+      double **darray = memory->grow(edarray[ewhich[index]],
+                                     n,edcol[ewhich[index]],"grid:edarray");
+      if (darray) memset(&darray[0][0],0,n*edcol[ewhich[index]]*sizeof(double));
     }
   }
 }
@@ -203,7 +207,7 @@ void Grid::remove_custom(int index)
         ewhich[icustom_ivec[i]] = i;
         eivec[i] = eivec[i+1];
       }
-    } else {
+    } else{
       memory->destroy(eiarray[ewhich[index]]);
       ncustom_iarray--;
       for (int i = ewhich[index]; i < ncustom_iarray; i++) {
@@ -222,7 +226,7 @@ void Grid::remove_custom(int index)
         ewhich[icustom_dvec[i]] = i;
         edvec[i] = edvec[i+1];
       }
-    } else {
+    } else{
       memory->destroy(edarray[ewhich[index]]);
       ncustom_darray--;
       for (int i = ewhich[index]; i < ncustom_darray; i++) {
@@ -240,47 +244,6 @@ void Grid::remove_custom(int index)
   for (int i = 0; i < ncustom; i++)
     if (ename[i]) empty = 0;
   if (empty) ncustom = 0;
-}
-
-/* ----------------------------------------------------------------------
-   copy custom values from Icell to Jcell
-   called whenever a grid cell is removed from this processor's list
-   caller checks that Icell != Jcell
-------------------------------------------------------------------------- */
-
-void Grid::copy_custom(int icell, int jcell)
-{
-  int i,j,size;
-
-  if (ncustom_ivec) {
-    for (i = 0; i < ncustom_ivec; i++) {
-      int *ivector = eivec[i];
-      ivector[jcell] = ivector[icell];
-    }
-  }
-  if (ncustom_iarray) {
-    for (i = 0; i < ncustom_iarray; i++) {
-      int **iarray = eiarray[i];
-      size = esize[icustom_iarray[i]];
-      for (j = 0; j < size; j++)
-        iarray[jcell][j] = iarray[icell][j];
-    }
-  }
-
-  if (ncustom_dvec) {
-    for (i = 0; i < ncustom_dvec; i++) {
-      double *dvector = edvec[i];
-      dvector[jcell] = dvector[icell];
-    }
-  }
-  if (ncustom_darray) {
-    for (i = 0; i < ncustom_darray; i++) {
-      double **darray = edarray[i];
-      size = esize[icustom_darray[i]];
-      for (j = 0; j < size; j++)
-        darray[jcell][j] = darray[icell][j];
-    }
-  }
 }
 
 /* ----------------------------------------------------------------------
@@ -310,6 +273,7 @@ void Grid::write_restart_custom(FILE *fp)
     fwrite(ename[index],sizeof(char),n,fp);
     fwrite(&etype[index],sizeof(int),1,fp);
     fwrite(&esize[index],sizeof(int),1,fp);
+    fwrite(&custom_ghost_flag[index],sizeof(int),1,fp);
   }
   for (m = 0; m < ncustom_iarray; m++) {
     index = icustom_iarray[m];
@@ -318,6 +282,7 @@ void Grid::write_restart_custom(FILE *fp)
     fwrite(ename[index],sizeof(char),n,fp);
     fwrite(&etype[index],sizeof(int),1,fp);
     fwrite(&esize[index],sizeof(int),1,fp);
+    fwrite(&custom_ghost_flag[index],sizeof(int),1,fp);
   }
   for (m = 0; m < ncustom_dvec; m++) {
     index = icustom_dvec[m];
@@ -326,6 +291,7 @@ void Grid::write_restart_custom(FILE *fp)
     fwrite(ename[index],sizeof(char),n,fp);
     fwrite(&etype[index],sizeof(int),1,fp);
     fwrite(&esize[index],sizeof(int),1,fp);
+    fwrite(&custom_ghost_flag[index],sizeof(int),1,fp);
   }
   for (m = 0; m < ncustom_darray; m++) {
     index = icustom_darray[m];
@@ -334,6 +300,7 @@ void Grid::write_restart_custom(FILE *fp)
     fwrite(ename[index],sizeof(char),n,fp);
     fwrite(&etype[index],sizeof(int),1,fp);
     fwrite(&esize[index],sizeof(int),1,fp);
+    fwrite(&custom_ghost_flag[index],sizeof(int),1,fp);
   }
 }
 
@@ -367,63 +334,44 @@ void Grid::read_restart_custom(FILE *fp)
     if (me == 0) tmp = fread(name,sizeof(char),n,fp);
     MPI_Bcast(name,n,MPI_CHAR,0,world);
     if (me == 0) tmp = fread(&type,sizeof(int),1,fp);
-    MPI_Bcast(&type,1,MPI_INT,0,world);
+    MPI_Bcast(&type,n,MPI_CHAR,0,world);
     if (me == 0) tmp = fread(&size,sizeof(int),1,fp);
-    MPI_Bcast(&size,1,MPI_INT,0,world);
+    MPI_Bcast(&size,n,MPI_CHAR,0,world);
+    if (me == 0) tmp = fread(&ghostflag,sizeof(int),1,fp);
+    MPI_Bcast(&ghostflag,n,MPI_CHAR,0,world);
 
     // create the custom attribute
 
-    add_custom(name,type,size);
+    add_custom(name,type,size,ghostflag);
     delete [] name;
   }
-}
 
-/* ----------------------------------------------------------------------
-   return size of all custom attributes in bytes for one grid cell
-   used by callers to allocate buffer memory for grid cells
-   assume integer attributes can be put at start of buffer
-   only alignment needed is between integers and doubles
-------------------------------------------------------------------------- */
+  // set flag for each newly created custom attribute to 0
+  // will be reset to 1 if restart script redefines attribute with same name
 
-int Grid::sizeof_custom()
-{
-  int n = 0;
-
-  n += ncustom_ivec*sizeof(int);
-  if (ncustom_iarray)
-    for (int i = 0; i < ncustom_iarray; i++)
-      n += eicol[i]*sizeof(int);
-
-  n = IROUNDUP(n);
-
-  n += ncustom_dvec*sizeof(double);
-  if (ncustom_darray)
-    for (int i = 0; i < ncustom_darray; i++)
-      n += edcol[i]*sizeof(double);
-
-  return n;
+  custom_restart_flag = new int[ncustom];
+  for (int i = 0; i < ncustom; i++) custom_restart_flag[i] = 0;
 }
 
 /* ----------------------------------------------------------------------
    pack a custom attributes for a single grid cell ICELL into buf
-   memflag = 0/1 = no/yes to actually pack into buf, 0 = just length
    this is done in order of 4 styles of vectors/arrays, not in ncustom order
 ------------------------------------------------------------------------- */
 
-int Grid::pack_custom(int icell, char *buf, int memflag)
+void Grid::pack_custom(int icell, char *buf)
 {
   int i;
   char *ptr = buf;
 
   if (ncustom_ivec) {
     for (i = 0; i < ncustom_ivec; i++) {
-      if (memflag) memcpy(ptr,&eivec[i][icell],sizeof(int));
+      memcpy(ptr,&eivec[i][icell],sizeof(int));
       ptr += sizeof(int);
     }
   }
   if (ncustom_iarray) {
     for (i = 0; i < ncustom_iarray; i++) {
-      if (memflag) memcpy(ptr,eiarray[i][icell],eicol[i]*sizeof(int));
+      memcpy(ptr,eiarray[i][icell],eicol[i]*sizeof(int));
       ptr += eicol[i]*sizeof(int);
     }
   }
@@ -432,18 +380,16 @@ int Grid::pack_custom(int icell, char *buf, int memflag)
 
   if (ncustom_dvec) {
     for (i = 0; i < ncustom_dvec; i++) {
-      if (memflag) memcpy(ptr,&edvec[i][icell],sizeof(double));
+      memcpy(ptr,&edvec[i][icell],sizeof(double));
       ptr += sizeof(double);
     }
   }
   if (ncustom_darray) {
     for (i = 0; i < ncustom_darray; i++) {
-      if (memflag) memcpy(ptr,edarray[i][icell],edcol[i]*sizeof(double));
+      memcpy(ptr,edarray[i][icell],edcol[i]*sizeof(double));
       ptr += edcol[i]*sizeof(double);
     }
   }
-
-  return ptr - buf;
 }
 
 /* ----------------------------------------------------------------------
@@ -451,7 +397,7 @@ int Grid::pack_custom(int icell, char *buf, int memflag)
    this is done in order of 4 styles of vectors/arrays, not in ncustom order
 ------------------------------------------------------------------------- */
 
-int Grid::unpack_custom(char *buf, int icell)
+void Grid::unpack_custom(char *buf, int icell)
 {
   int i;
   char *ptr = buf;
@@ -483,6 +429,30 @@ int Grid::unpack_custom(char *buf, int icell)
       ptr += edcol[i]*sizeof(double);
     }
   }
+}
 
-  return ptr - buf;
+/* ----------------------------------------------------------------------
+   return size of all custom attributes in bytes for one grid cell
+   used by callers to allocate buffer memory for particles
+   assume integer attributes can be put at start of buffer
+   only alignment needed is between integers and doubles
+------------------------------------------------------------------------- */
+
+int Grid::sizeof_custom()
+{
+  int n = 0;
+
+  n += ncustom_ivec*sizeof(int);
+  if (ncustom_iarray)
+    for (int i = 0; i < ncustom_iarray; i++)
+      n += eicol[i]*sizeof(int);
+
+  n = IROUNDUP(n);
+
+  n += ncustom_dvec*sizeof(double);
+  if (ncustom_darray)
+    for (int i = 0; i < ncustom_darray; i++)
+      n += edcol[i]*sizeof(double);
+
+  return n;
 }

@@ -40,7 +40,7 @@ using namespace SPARTA_NS;
 using namespace MathConst;
 
 enum{NONE,DISCRETE,SMOOTH};
-enum{NUMERIC,CUSTOM,VARIABLE,VAREQUAL,VARSURF};   // surf_collide classes
+enum{NUMERIC,VARIABLE,CUSTOM};
 
 /* ---------------------------------------------------------------------- */
 
@@ -49,7 +49,24 @@ SurfCollideImpulsive::SurfCollideImpulsive(SPARTA *sparta, int narg, char **arg)
 {
   if (narg < 10) error->all(FLERR,"Illegal surf_collide impulsive command");
 
-  parse_tsurf(arg[2]);
+  tstr = NULL;
+
+  if (strstr(arg[2],"v_") == arg[2]) {
+    dynamicflag = 1;
+    tmode = VARIABLE;
+    int n = strlen(&arg[2][2]) + 1;
+    tstr = new char[n];
+    strcpy(tstr,&arg[2][2]);
+  } else if (strstr(arg[2],"s_") == arg[2]) {
+    tmode = CUSTOM;
+    int n = strlen(&arg[2][2]) + 1;
+    tstr = new char[n];
+    strcpy(tstr,&arg[2][2]);
+  } else {
+    tmode = NUMERIC;
+    twall = input->numeric(FLERR,arg[2]);
+    if (twall <= 0.0) error->all(FLERR,"Surf_collide impulsive temp <= 0.0");
+  }
 
   softsphere_flag = 0;
   if (strcmp(arg[3],"softsphere") == 0) {
@@ -87,13 +104,7 @@ SurfCollideImpulsive::SurfCollideImpulsive(SPARTA *sparta, int narg, char **arg)
 
   int iarg = 10;
   while (iarg < narg) {
-    if (strcmp(arg[iarg],"temp/freq") == 0) {
-      if (iarg+2 > narg)
-        error->all(FLERR,"Illegal surf_collide impulsive command");
-      tfreq = atoi(arg[iarg+1]);
-      if (tfreq <= 0) error->all(FLERR,"Illegal surf_collide impulsive command");
-      iarg += 2;
-    } else if (strcmp(arg[iarg],"step") == 0) {
+    if (strcmp(arg[iarg],"step") == 0) {
       if (iarg+2 > narg)
         error->all(FLERR,"Illegal surf_collide impulsive command");
       step_flag = 1;
@@ -141,6 +152,7 @@ SurfCollideImpulsive::SurfCollideImpulsive(SPARTA *sparta, int narg, char **arg)
 
 SurfCollideImpulsive::~SurfCollideImpulsive()
 {
+  delete [] tstr;
   delete random;
 }
 
@@ -149,7 +161,16 @@ SurfCollideImpulsive::~SurfCollideImpulsive()
 void SurfCollideImpulsive::init()
 {
   SurfCollide::init();
-  check_tsurf();
+
+  // check variable
+
+  if (tstr) {
+    tvar = input->variable->find(tstr);
+    if (tvar < 0)
+      error->all(FLERR,"Surf_collide impulsive variable name does not exist");
+    if (!input->variable->equal_style(tvar))
+      error->all(FLERR,"Surf_collide impulsive variable is invalid style");
+  }
 }
 
 /* ----------------------------------------------------------------------
@@ -185,31 +206,26 @@ collide(Particle::OnePart *&ip, double &,
     if (reaction) surf->nreact_one++;
   }
 
-  // set temperature of isurf if VARSURF or CUSTOM
-
-  if (persurf_temperature) {
-    tsurf = t_persurf[isurf];
-    if (tsurf <= 0.0) error->one(FLERR,"Surf_collide tsurf <= 0.0");
-  }
-
   // impulsive reflection for each particle
   // only if SurfReact did not already reset velocities
   // also both partiticles need to trigger any fixes
   //   to update per-particle properties which depend on
   //   temperature of the particle, e.g. fix vibmode and fix ambipolar
 
+  if (tmode == CUSTOM) twall = tvector[isurf];
+
   if (ip) {
     if (!velreset) impulsive(ip,norm);
     if (modify->n_update_custom) {
       int i = ip - particle->particles;
-      modify->update_custom(i,tsurf,tsurf,tsurf,vstream);
+      modify->update_custom(i,twall,twall,twall,vstream);
     }
   }
   if (jp) {
     if (!velreset) impulsive(jp,norm);
     if (modify->n_update_custom) {
       int j = jp - particle->particles;
-      modify->update_custom(j,tsurf,tsurf,tsurf,vstream);
+      modify->update_custom(j,twall,twall,twall,vstream);
     }
   }
 
@@ -251,7 +267,7 @@ void SurfCollideImpulsive::impulsive(Particle::OnePart *p, double *norm)
 
   double vperp, vtan1, vtan2;
   double mass = species[ispecies].mass;
-  //double vrm = sqrt(2.0*update->boltz * tsurf / mass);
+  //double vrm = sqrt(2.0*update->boltz * twall / mass);
 
   double *v = p->v;
   double dot = MathExtra::dot3(v,norm);
@@ -328,7 +344,7 @@ void SurfCollideImpulsive::impulsive(Particle::OnePart *p, double *norm)
     v_f_avg = var_alpha_sq * sqrt(mass/(2*E_f_avg)) *
       (2*E_f_avg/(mass*var_alpha_sq) - 1);
   } else {
-    v_f_avg = u0_a*tsurf + u0_b;
+    v_f_avg = u0_a*twall + u0_b;
   }
 
   double v_f_max = 0.5 * (v_f_avg + sqrt(v_f_avg*v_f_avg + 6*var_alpha_sq));
@@ -351,8 +367,8 @@ void SurfCollideImpulsive::impulsive(Particle::OnePart *p, double *norm)
   v[1] = vperp*norm[1] + vtan1*tangent1[1] + vtan2*tangent2[1];
   v[2] = vperp*norm[2] + vtan1*tangent1[2] + vtan2*tangent2[2];
 
-  //p->erot = particle->erot(ispecies,tsurf,random);
-  //p->evib = particle->evib(ispecies,tsurf,random);
+  //p->erot = particle->erot(ispecies,twall,random);
+  //p->evib = particle->evib(ispecies,twall,random);
 
   if (intenergy_flag) {
     double E_f = 0.5 * mass * v_f_mag * v_f_mag;
@@ -409,7 +425,7 @@ void SurfCollideImpulsive::wrapper(Particle::OnePart *p, double *norm,
                                    int *flags, double *coeffs)
 {
   if (flags) {
-    tsurf = coeffs[0];
+    twall = coeffs[0];
 
     softsphere_flag = flags[0];
     if (softsphere_flag) {
@@ -452,11 +468,11 @@ void SurfCollideImpulsive::wrapper(Particle::OnePart *p, double *norm,
 
 void SurfCollideImpulsive::flags_and_coeffs(int *flags, double *coeffs)
 {
-  if (tmode != NUMERIC)
-    error->all(FLERR,"Surf_collide impulsive with non-numeric Tsurf "
+  if (tmode == CUSTOM)
+    error->all(FLERR,"Surf_collide impulsive with custom per-surf Twall "
                "does not support external caller");
 
-  coeffs[0] = tsurf;
+  coeffs[0] = twall;
 
   flags[0] = softsphere_flag;
   if (softsphere_flag) {
@@ -488,4 +504,14 @@ void SurfCollideImpulsive::flags_and_coeffs(int *flags, double *coeffs)
     coeffs[m++] = rot_frac;
     coeffs[m++] = vib_frac;
   }
+}
+
+/* ----------------------------------------------------------------------
+   set current surface temperature
+------------------------------------------------------------------------- */
+
+void SurfCollideImpulsive::dynamic()
+{
+  twall = input->variable->compute_equal(tvar);
+  if (twall <= 0.0) error->all(FLERR,"Surf_collide impulsive temp <= 0.0");
 }

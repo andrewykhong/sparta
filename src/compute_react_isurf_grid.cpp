@@ -233,6 +233,7 @@ void ComputeReactISurfGrid::surf_tally(int isurf, int icell, int reaction,
   // itally = tally index of isurf
   // if 1st reaction on this isurf, add surf ID to hash
   // grow tally list if needed
+  // for implicit surfs, surfID is really a cellID
 
   int itally;
   double *vec;
@@ -266,7 +267,7 @@ void ComputeReactISurfGrid::surf_tally(int isurf, int icell, int reaction,
 }
 
 /* ----------------------------------------------------------------------
-   return # of tallies and their indices into my owned+ghost cell list
+   return # of tallies and their indices into my local surf list
 ------------------------------------------------------------------------- */
 
 int ComputeReactISurfGrid::tallyinfo(surfint *&ptr)
@@ -295,11 +296,17 @@ void ComputeReactISurfGrid::post_process_isurf_grid()
     memory->create(array_grid,maxgrid,ntotal,"isurf/grid:array_grid");
   }
 
-  // perform rendezvous comm on tallies to sum ghost tallies
-  //   to my owned grid cells
-  // for implicit surfs, surfIDs are also cellIDs
+  // zero array_grid
 
-  grid->collate_array_implicit(ntally,ntotal,(cellint *) tally2surf,
+  int i,j;
+  for (i = 0; i < nglocal; i++)
+    for (j = 0; j < ntotal; j++)
+      array_grid[i][j] = 0.0;
+
+  // perform rendezvous comm on tallies to sum them to my grid cells
+  // array_surf_tally can be NULL if this proc has performed no tallies
+
+  surf->collate_array_implicit(ntally,ntotal,tally2surf,
                                array_surf_tally,array_grid);
 
   // zero out result if icell not in grid group
@@ -307,7 +314,6 @@ void ComputeReactISurfGrid::post_process_isurf_grid()
   // cinfo does not have mask values for ghost cells
 
   Grid::ChildInfo *cinfo = grid->cinfo;
-  int j;
 
   for (int icell = 0; icell < nglocal; icell++) {
     if (!(cinfo[icell].mask & groupbit)) {
