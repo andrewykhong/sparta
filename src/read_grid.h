@@ -39,12 +39,6 @@ class ReadGrid : protected Pointers {
   FILE *fp;
   int compressed;
 
-  int ncustom,nvalues_custom;
-  char **name_custom;
-  int *type_custom,*size_custom,*ghost_custom;
-  int nclocal,ncmax;
-  double **cvalues;
-
   bigint ncell;
   int nlevels;
   int whichproc;
@@ -58,9 +52,6 @@ class ReadGrid : protected Pointers {
 
   void read_cells();
   void create_cells(int, char *);
-  void add_custom(double *);
-  void create_custom();
-
   void open(char *);
   void header();
   void parse_keyword(int);

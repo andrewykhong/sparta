@@ -50,6 +50,8 @@ FixSurfTemp::FixSurfTemp(SPARTA *sparta, int narg, char **arg) :
 
   if (surf->implicit)
     error->all(FLERR,"Cannot use fix surf/temp with implicit surfs");
+  if (surf->distributed)
+    error->all(FLERR,"Cannot use fix surf/temp with distributed surfs");
 
   int igroup = surf->find_group(arg[2]);
   if (igroup < 0) error->all(FLERR,"Fix surf/temp group ID does not exist");
@@ -128,11 +130,9 @@ FixSurfTemp::FixSurfTemp(SPARTA *sparta, int narg, char **arg) :
   char *id_custom = new char[n];
   strcpy(id_custom,arg[7]);
 
-  // check if custom attribute already exists, due to restart file
-  // else create per-surf temperature vector
+  // create per-surf temperature vector
 
-  tindex = surf->find_custom(id_custom);
-  if (tindex < 0) tindex = surf->add_custom(id_custom,DOUBLE,0);
+  tindex = surf->add_custom(id_custom,DOUBLE,0);
   delete [] id_custom;
 
   // prefactor and threshold in Stefan/Boltzmann equation
@@ -149,9 +149,13 @@ FixSurfTemp::FixSurfTemp(SPARTA *sparta, int narg, char **arg) :
     threshold = 1.0e-3;
   }
 
-  // trigger one-time initialization of custom per-surf temperatures
+  // trigger setup of list of owned surf elements belonging to surf group
 
   firstflag = 1;
+
+  // initialize data structure
+
+  tvector_me = NULL;
 }
 
 /* ---------------------------------------------------------------------- */
@@ -159,6 +163,7 @@ FixSurfTemp::FixSurfTemp(SPARTA *sparta, int narg, char **arg) :
 FixSurfTemp::~FixSurfTemp()
 {
   delete [] id_qw;
+  memory->destroy(tvector_me);
   surf->remove_custom(tindex);
 }
 
@@ -175,16 +180,20 @@ int FixSurfTemp::setmask()
 
 void FixSurfTemp::init()
 {
+  // one-time initialization of temperature for all surfs in custom vector
+
   if (!firstflag) return;
   firstflag = 0;
 
-  // one-time initialization of temperature for all surfs in custom vector
-
   double *tvector = surf->edvec[surf->ewhich[tindex]];
-  int nsown = surf->nown;
+  int nlocal = surf->nlocal;
 
-  for (int i = 0; i < nsown; i++)
+  for (int i = 0; i < nlocal; i++)
     tvector[i] = twall;
+
+  // allocate per-surf vector for explicit all surfs
+
+  memory->create(tvector_me,nlocal,"surf/temp:tvector_me");
 }
 
 /* ----------------------------------------------------------------------
@@ -194,76 +203,73 @@ void FixSurfTemp::init()
 
 void FixSurfTemp::end_of_step()
 {
-  int m,mask;
+  int i,m,mask;
   double qw;
 
   int me = comm->me;
   int nprocs = comm->nprocs;
   int dimension = domain->dimension;
-  int distributed = surf->distributed;
 
-  // access source compute or fix which is only surfs I own
+  // access source compute or fix
   // set new temperature via Stefan-Boltzmann eq for nown surfs I own
-  // NOTE: which of these 2 options (set doc page accordingly):
-  //   set to Twall if eng flux to surf is too small
-  //   no reset if eng flux < threshold
+  // use Twall if surf is not in surf group or eng flux is too small
+  // compute/fix output is just my nown surfs, indexed by M
+  // store in tvector_me = all nlocal surfs, indexed by I
 
-  Surf::Line *lines;
-  Surf::Tri *tris;
+  Surf::Line *lines = surf->lines;
+  Surf::Tri *tris = surf->tris;
 
-  if (distributed) {
-    lines = surf->mylines;
-    tris = surf->mytris;
-  } else {
-    lines = surf->lines;
-    tris = surf->tris;
-  }
+  int nlocal = surf->nlocal;
 
-  double *tcustom = surf->edvec[surf->ewhich[tindex]];
-  int nsown = surf->nown;
+  memset(tvector_me,0,nlocal*sizeof(double));
 
   if (qwindex == 0) {
-    double *qwvector;
+    double *vector;
     if (source == COMPUTE) {
       cqw->post_process_surf();
-      qwvector = cqw->vector_surf;
-    } else qwvector = fqw->vector_surf;
+      vector = cqw->vector_surf;
+    } else vector = fqw->vector_surf;
 
-    for (int i = 0; i < nsown; i++) {
-      if (!distributed) m = me + i*nprocs;
-      else m = i;
-      if (dimension == 2) mask = lines[m].mask;
-      else mask = tris[m].mask;
-      if (mask & groupbit) {
-        qw = qwvector[i];
-	if (qw > threshold) tcustom[i] = pow(prefactor*qw,0.25);
-        else tcustom[i] = twall;
+    m = 0;
+    for (i = me; i < nlocal; i += nprocs) {
+      if (dimension == 3) mask = tris[i].mask;
+      else mask = lines[i].mask;
+      if (!(mask & groupbit)) tvector_me[i] = twall;
+      else {
+        qw = vector[m];
+        if (qw > threshold) tvector_me[i] = pow(prefactor*qw,0.25);
+        else tvector_me[i] = twall;
       }
+      m++;
     }
 
   } else {
-    double **qwarray;
+    double **array;
     if (source == COMPUTE) {
       cqw->post_process_surf();
-      qwarray = cqw->array_surf;
-    } else qwarray = fqw->array_surf;
+      array = cqw->array_surf;
+    } else array = fqw->array_surf;
 
     int icol = qwindex-1;
 
-    for (int i = 0; i < nsown; i++) {
-      if (!distributed) m = me + i*nprocs;
-      else m = i;
-      if (dimension == 2) mask = lines[m].mask;
-      else mask = tris[m].mask;
-      if (mask & groupbit) {
-        qw = qwarray[i][icol];
-        if (qw > threshold) tcustom[i] = pow(prefactor*qw,0.25);
-        else tcustom[i] = twall;
+    m = 0;
+    for (i = me; i < nlocal; i += nprocs) {
+      if (dimension == 3) mask = tris[i].mask;
+      else mask = lines[i].mask;
+      if (!(mask & groupbit)) tvector_me[i] = twall;
+      else {
+        qw = array[m][icol];
+        if (qw > threshold) tvector_me[i] = pow(prefactor*qw,0.25);
+        else tvector_me[i] = twall;
       }
+      m++;
     }
   }
 
-  // flag custom attribute as updated
+  // Allreduce tvector_me with my owned surfs to tvector custom variable
+  // so that all procs know new temperature of all surfs
+  // NOTE: could possibly just Allreduce a vector size of surface group
 
-  surf->estatus[tindex] = 0;
+  double *tvector = surf->edvec[surf->ewhich[tindex]];
+  MPI_Allreduce(tvector_me,tvector,nlocal,MPI_DOUBLE,MPI_SUM,world);
 }
