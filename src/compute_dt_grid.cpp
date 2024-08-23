@@ -584,6 +584,8 @@ void ComputeDtGrid::compute_per_grid()
 
   Grid::ChildCell *cells = grid->cells;
   Grid::ChildInfo *cinfo = grid->cinfo;
+  Particle::OnePart *particles = particle->particles;
+  int dimension = domain->dimension;
 
   double dx,dy,dz;
   double umag,vmag,wmag,velmag2;

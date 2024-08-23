@@ -29,7 +29,7 @@ namespace SPARTA_NS {
 class SurfCollidePiston : public SurfCollide {
  public:
   SurfCollidePiston(class SPARTA *, int, char **);
-  SurfCollidePiston(class SPARTA *sparta) : SurfCollide(sparta) {} // needed for Kokkos
+  SurfCollidePiston(class SPARTA *sparta) : SurfCollide(sparta) {}
   virtual ~SurfCollidePiston() {}
   virtual void init();
   Particle::OnePart *collide(Particle::OnePart *&, double &,

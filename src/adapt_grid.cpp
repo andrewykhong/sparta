@@ -165,20 +165,6 @@ void AdaptGrid::command(int narg, char **arg)
     grid->type_check();
   }
 
-  // if not before first run,
-  // notify all classes that store per-grid data that grid may have changed
-
-  if (update->first_update) grid->notify_changed();
-
-  // if explicit distributed surfs
-  // set redistribute timestep and clear custom status flags
-
-  if (surf->distributed && !surf->implicit) {
-    surf->localghost_changed_step = update->ntimestep;
-    for (int i = 0; i < surf->ncustom; i++)
-      surf->estatus[i] = 0;
-  }
-
   // write out new grid file
 
   if (file) write_file();
@@ -892,7 +878,7 @@ int AdaptGrid::perform_refine()
 
 void AdaptGrid::candidates_coarsen()
 {
-  int m,n,level,nxyz,nchild;
+  int m,n,proc,level,nxyz,nchild;
   cellint parentID;
   double lo[3],hi[3];
 
@@ -1301,7 +1287,7 @@ void AdaptGrid::coarsen_random()
 
 void AdaptGrid::particle_surf_comm()
 {
-  int m,plevel,ihalf,jhalf,khalf,ichild,nchild,owner;
+  int j,m,plevel,ihalf,jhalf,khalf,ichild,nchild,owner;
   int icell,jcell,np,nsplit;
   cellint parentID;
   int *csubs;
@@ -1492,8 +1478,8 @@ void AdaptGrid::particle_surf_comm()
 
 int AdaptGrid::perform_coarsen()
 {
-  int i,nchild,newcell,mask;
-  int plevel,nsplit,jcell;
+  int i,m,icell,nchild,newcell,mask;
+  int plevel,nsplit,jcell,ip;
   cellint parentID;
   double plo[3],phi[3];
   int *csubs;

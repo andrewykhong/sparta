@@ -84,8 +84,6 @@ FixAblate::FixAblate(SPARTA *sparta, int narg, char **arg) :
   scale = atof(arg[4]);
   if (scale < 0.0) error->all(FLERR,"Illegal fix ablate command");
 
-  int iarg;
-
   if ((strncmp(arg[5],"c_",2) == 0) || (strncmp(arg[5],"f_",2) == 0)) {
     if (arg[5][0] == 'c') which = COMPUTE;
     else if (arg[5][0] == 'f') which = FIX;
@@ -107,8 +105,6 @@ FixAblate::FixAblate(SPARTA *sparta, int narg, char **arg) :
     strcpy(idsource,suffix);
     delete [] suffix;
 
-    iarg = 6;
-
   } else if (strncmp(arg[5],"v_",2) == 0) {
     which = VARIABLE;
 
@@ -116,14 +112,10 @@ FixAblate::FixAblate(SPARTA *sparta, int narg, char **arg) :
     char *idsource = new char[n];
     strcpy(idsource,&arg[5][2]);
 
-    iarg = 6;
-
   } else if (strcmp(arg[5],"random") == 0) {
-    if (narg < 7) error->all(FLERR,"Illegal fix ablate command");
+    if (narg != 7) error->all(FLERR,"Illegal fix ablate command");
     which = RANDOM;
     maxrandom = atoi(arg[6]);
-
-    iarg = 7;
 
   } else error->all(FLERR,"Illegal fix ablate command");
 
@@ -174,10 +166,6 @@ FixAblate::FixAblate(SPARTA *sparta, int narg, char **arg) :
     if (input->variable->grid_style(ivariable) == 0)
       error->all(FLERR,"Fix ablate variable is not grid-style variable");
   }
-
-  // process optional command line args
-
-  process_args(narg-iarg,&arg[iarg]);
 
   // this fix produces a per-grid array and a scalar
 
@@ -320,6 +308,7 @@ void FixAblate::store_corners(int nx_caller, int ny_caller, int nz_caller,
 
   Grid::ChildCell *cells = grid->cells;
   Grid::ChildInfo *cinfo = grid->cinfo;
+  Grid::SplitInfo *sinfo = grid->sinfo;
   nglocal = grid->nlocal;
 
   grow_percell(0);
@@ -350,27 +339,7 @@ void FixAblate::store_corners(int nx_caller, int ny_caller, int nz_caller,
       static_cast<int> ((cells[icell].lo[2]-cornerlo[2]) / xyzsize[2] + 0.5) + 1;
   }
 
-  // determine how close corner points values can be to threshold
-  // corner points inside the surface have values >= threshold
-  // corner points outside the surface (in the gas) have values < threshold
-  // corner_inside_min = min allowed value of an inside corner point
-  // corner_outside_max = max allowed value on an outside corner point
-  // use epsilon method (mindist = 0.0) or isosurface stuffing method
-
-
-  if (mindist == 0.0) {
-    corner_inside_min = thresh + EPSILON;
-    corner_outside_max = thresh - EPSILON;
-  } else {
-    corner_inside_min = (thresh - 0.0*mindist) / (1.0-mindist);
-    corner_outside_max = (thresh - 255.0*mindist) / (1.0-mindist);
-  }
-
-  corner_inside_min = MIN(corner_inside_min,255.0);
-  corner_outside_max = MAX(corner_outside_max,0.0);
-
-  // push corner pt values with fully external/internal neighbors to 0 or 255
-  // adjust individual corner point values too close to threshold
+  // push corner pt values that are fully external/internal to 0 or 255
 
   if (pushflag) push_lohi();
   epsilon_adjust();
@@ -426,7 +395,6 @@ void FixAblate::end_of_step()
   decrement();
 
   // sync shared corner point values
-  // adjust individual corner point values too close to threshold
 
   sync();
   epsilon_adjust();
@@ -466,7 +434,7 @@ void FixAblate::create_surfs(int outflag)
   grid->unset_neighbors();
   grid->remove_ghosts();
   grid->clear_surf();
-  surf->clear_implicit();
+  surf->clear();
 
   // perform Marching Squares/Cubes to create new implicit surfs
   // cvalues = corner point values
@@ -625,6 +593,7 @@ void FixAblate::create_surfs(int outflag)
   // similar code as in fix grid/check
 
   Grid::ChildCell *cells = grid->cells;
+  Grid::ChildInfo *cinfo = grid->cinfo;
   Grid::SplitInfo *sinfo = grid->sinfo;
   Particle::OnePart *particles = particle->particles;
   int pnlocal = particle->nlocal;
@@ -757,7 +726,7 @@ void FixAblate::set_delta_random()
 /* ----------------------------------------------------------------------
    set per-cell delta vector from compute/fix/variable source
    celldelta = nevery * scale * source-value
-   NOTE: how does this work for split cells? should only do parent split?
+   // NOTE: how does this work for split cells? should only do parent split?
 ------------------------------------------------------------------------- */
 
 void FixAblate::set_delta()
@@ -973,15 +942,16 @@ void FixAblate::sync()
 }
 
 /* ----------------------------------------------------------------------
-   ensure each corner point value is not too close to threshold
-   this avoids creating tiny or zero-size surface elements
-   corner_inside_min and corner_outside_max are set in store_corners()
-     via epsilon method or isosurface stuffing method
+   adjust corner point values by epsilon of too close to threshold
+   to avoid creating tiny or zero-size surface elements
 ------------------------------------------------------------------------- */
 
 void FixAblate::epsilon_adjust()
 {
   int i,icell;
+
+  // insure no corner point is within EPSILON of threshold
+  // if so, set it to threshold - EPSILON
 
   Grid::ChildCell *cells = grid->cells;
   Grid::ChildInfo *cinfo = grid->cinfo;
@@ -991,10 +961,8 @@ void FixAblate::epsilon_adjust()
     if (cells[icell].nsplit <= 0) continue;
 
     for (i = 0; i < ncorner; i++)
-      if (cvalues[icell][i] >= thresh && cvalues[icell][i] < corner_inside_min)
-        cvalues[icell][i] = corner_outside_max;
-      else if (cvalues[icell][i] < thresh && cvalues[icell][i] > corner_outside_max)
-        cvalues[icell][i] = corner_outside_max;;
+      if (fabs(cvalues[icell][i]-thresh) < EPSILON)
+        cvalues[icell][i] = thresh - EPSILON;
   }
 }
 
@@ -1126,7 +1094,7 @@ void FixAblate::push_lohi()
 
 void FixAblate::comm_neigh_corners(int which)
 {
-  int i,j,m,n,ix,iy,iz,jx,jy,jz;
+  int i,j,m,n,ix,iy,iz,ixfirst,iyfirst,izfirst,jx,jy,jz;
   int icell,ifirst,jcell,proc,ilocal;
 
   Grid::ChildCell *cells = grid->cells;
@@ -1178,7 +1146,9 @@ void FixAblate::comm_neigh_corners(int which)
             if (j == nsend) {
               if (nsend == maxsend) grow_send();
               proclist[nsend] = proc;
-              locallist[nsend++] = cells[icell].id;
+              // NOTE: change locallist to another name
+              // NOTE: what about cellint vs int
+              locallist[nsend++] = cells[icell].id;   // no longer an int
             }
           }
         }
@@ -1213,7 +1183,7 @@ void FixAblate::comm_neigh_corners(int which)
 
     n = numsend[icell];
     for (i = 0; i < n; i++) {
-      sbuf[m++] = ubuf(locallist[nsend]).d;
+      sbuf[m++] = locallist[nsend];
       if (which == CDELTA) {
         for (j = 0; j < ncorner; j++)
           sbuf[m++] = cdelta[icell][j];
@@ -1249,7 +1219,7 @@ void FixAblate::comm_neigh_corners(int which)
 
   m = 0;
   for (i = 0; i < nrecv; i++) {
-    cellID = (cellint) ubuf(rbuf[m++]).u;
+    cellID = static_cast<cellint> (rbuf[m++]);   // NOTE: need ubuf logic
     ilocal = (*hash)[cellID];
     icell = ilocal - nglocal;
     for (j = 0; j < ncorner; j++)
@@ -1557,25 +1527,4 @@ double FixAblate::memory_usage()
   bytes += 3*maxsend * sizeof(int);            // proclist,locallist,numsend
   bytes += maxbuf * sizeof(double);            // sbuf
   return bytes;
-}
-
-/* ----------------------------------------------------------------------
-   process command line args
-------------------------------------------------------------------------- */
-
-void FixAblate::process_args(int narg, char **arg)
-{
-  mindist = 0.0;
-
-  int iarg = 0;
-  while (iarg < narg) {
-    if (strcmp(arg[iarg],"mindist") == 0)  {
-      if (iarg+2 > narg) error->all(FLERR,"Invalid read_isurf command");
-      mindist = atof(arg[iarg+1]);
-      if (mindist < 0.0 || mindist >= 0.5)
-        error->all(FLERR,"Fix ablate mindist value must be >= 0.0 and < 0.5");
-      if (mindist < EPSILON) mindist = 0.0;
-      iarg += 2;
-    } else error->all(FLERR,"Invalid read_isurf command");
-  }
 }

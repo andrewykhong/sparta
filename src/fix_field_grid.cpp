@@ -128,15 +128,13 @@ void FixFieldGrid::init()
   }
 
   bigint nbytes = (bigint) grid->nlocal * size_per_grid_cols;
-  if (nbytes) memset(&array_grid[0][0],0,nbytes*sizeof(double));
+  memset(&array_grid[0][0],0,nbytes*sizeof(double));
 }
 
 /* ---------------------------------------------------------------------- */
 
 void FixFieldGrid::compute_field()
 {
-  if (!grid->nlocal) return;
-
   // reallocate array_grid if necessary
 
   if (grid->nlocal > maxgrid) {

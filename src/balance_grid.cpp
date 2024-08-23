@@ -407,21 +407,6 @@ void BalanceGrid::command(int narg, char **arg, int outflag)
   else grid->find_neighbors();
   comm->reset_neighbors();
 
-  // if explicit distributed surfs
-  // set redistribute timestep and clear custom status flags
-
-  if (surf->distributed && !surf->implicit) {
-    surf->localghost_changed_step = update->ntimestep;
-    for (int i = 0; i < surf->ncustom; i++)
-      surf->estatus[i] = 0;
-  }
-
-  // if not before first run:
-  // notify all classes that store per-grid data that grid may have changed
-  // do this after clearing custom status flags in case classes use that info
-
-  if (update->first_update) grid->notify_changed();
-
   MPI_Barrier(world);
   double time5 = MPI_Wtime();
 

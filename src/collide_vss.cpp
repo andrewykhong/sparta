@@ -106,6 +106,7 @@ double CollideVSS::vremax_init(int igroup, int jgroup)
 {
   // parent has set mixture ptr
 
+  Particle::Species *species = particle->species;
   double *vscale = mixture->vscale;
   int *mix2group = mixture->mix2group;
   int nspecies = particle->nspecies;
@@ -426,7 +427,7 @@ void CollideVSS::EEXCHANGE_NonReactingEDisposal(Particle::OnePart *ip,
 {
 
   double State_prob,Fraction_Rot,Fraction_Vib,E_Dispose;
-  int i,rotdof,vibdof,max_level,ivib;
+  int i,rotdof,vibdof,max_level,ivib,irot;
 
   Particle::OnePart *p;
   Particle::Species *species = particle->species;
@@ -633,7 +634,7 @@ void CollideVSS::EEXCHANGE_ReactingEDisposal(Particle::OnePart *ip,
                                              Particle::OnePart *kp)
 {
   double State_prob,Fraction_Rot,Fraction_Vib;
-  int i,numspecies,rotdof,vibdof,max_level,ivib;
+  int i,numspecies,rotdof,vibdof,max_level,ivib,irot;
   double aveomega,pevib;
 
   Particle::OnePart *p;

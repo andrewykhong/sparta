@@ -66,7 +66,6 @@ class Compute : protected Pointers {
   int maxtime;        // max # of entries time list can hold
   bigint *tlist;      // list of timesteps the Compute is called on
 
-  int first_init;         // 0 if init() not yet called, otherwise 1
   int invoked_flag;       // non-zero if invoked or accessed this step, 0 if not
   bigint invoked_scalar;  // last timestep on which compute_scalar() was invoked
   bigint invoked_vector;       // ditto for compute_vector()
@@ -76,11 +75,9 @@ class Compute : protected Pointers {
   bigint invoked_per_surf;     // ditto for compute_per_surf()
 
   Compute(class SPARTA *, int, char **);
-  Compute(class SPARTA* sparta) : Pointers(sparta) {} // needed for Kokkos
+  Compute(class SPARTA* sparta) : Pointers(sparta) {}
   virtual ~Compute();
   virtual void init() {}
-  void set_init();
-  virtual void post_constructor() {}
 
   virtual double compute_scalar() {return 0.0;}
   virtual void compute_vector() {}
@@ -115,8 +112,8 @@ class Compute : protected Pointers {
   // Kokkos methods
 
   int kokkos_flag;          // 1 if Kokkos-enabled
-  int copy,uncopy,copymode; // prevent deallocation of
-                            //  base class when child copy is destroyed
+  int copy,copymode;        // 1 if copy of class (prevents deallocation of
+                            //  base class when child copy is destroyed)
 };
 
 }

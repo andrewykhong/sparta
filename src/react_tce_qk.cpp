@@ -46,11 +46,7 @@ void ReactTCEQK::init()
   for (int i = 0; i < nlist; i++)
     if (rlist[i].active && rlist[i].type == RECOMBINATION)
       error->all(FLERR,
-                 "React tce/qk does not currently support recombination reactions");
-
-  if (computeChemRates)
-    error->all(FLERR,
-               "React tce/qk does not currently support the 'react_modify compute_chem_rates' option");
+                 "React qk does not currently support recombination reactions");
 }
 
 /* ---------------------------------------------------------------------- */

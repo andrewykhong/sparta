@@ -129,15 +129,13 @@ void FixFieldParticle::init()
   }
 
   bigint nbytes = (bigint) particle->nlocal * size_per_particle_cols;
-  if (nbytes) memset(&array_particle[0][0],0,nbytes*sizeof(double));
+  memset(&array_particle[0][0],0,nbytes*sizeof(double));
 }
 
 /* ---------------------------------------------------------------------- */
 
 void FixFieldParticle::compute_field()
 {
-  if (!particle->nlocal) return;
-
   // reallocate array_particle if necessary
 
   if (particle->nlocal > maxparticle) {

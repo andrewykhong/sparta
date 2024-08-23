@@ -49,7 +49,7 @@ FixBalance::FixBalance(SPARTA *sparta, int narg, char **arg) :
 
   scalar_flag = 1;
   vector_flag = 1;
-  size_vector = 3;
+  size_vector = 2;
   global_freq = 1;
 
   // parse arguments
@@ -126,7 +126,6 @@ FixBalance::FixBalance(SPARTA *sparta, int narg, char **arg) :
 
   last = 0.0;
   imbfinal = imbprev = imbalance_factor(maxperproc);
-  nbalance = 0;
 }
 
 /* ---------------------------------------------------------------------- */
@@ -192,10 +191,6 @@ void FixBalance::end_of_step()
 
   imbnow = imbalance_factor(maxperproc);
   if (imbnow <= thresh) return;
-
-  // perform rebalancing
-
-  nbalance++;
   imbprev = imbnow;
 
   Grid::ChildCell *cells = grid->cells;
@@ -301,25 +296,14 @@ void FixBalance::end_of_step()
   grid->reset_neighbors();
   comm->reset_neighbors();
 
-  // if explicit distributed surfs
-  // set redistribute timestep and clear custom status flags
-
-  if (surf->distributed && !surf->implicit) {
-    surf->localghost_changed_step = update->ntimestep;
-    for (int i = 0; i < surf->ncustom; i++)
-      surf->estatus[i] = 0;
-  }
-
   // notify all classes that store per-grid data that grid may have changed
-  // do this after clearing custom status flags in case classes use that info
 
   grid->notify_changed();
 
   // final imbalance factor
-  // for RCB TIME, cannot compute imbalance from timers since grid cells moved
 
   if (bstyle == BISECTION && rcbwt == TIME)
-    imbfinal = 0.0;
+    imbfinal = 0.0; // can't compute imbalance from timers since grid cells moved
   else
     imbfinal = imbalance_factor(maxperproc);
 }
@@ -333,6 +317,7 @@ void FixBalance::end_of_step()
 double FixBalance::imbalance_factor(double &maxcost)
 {
   double mycost,totalcost;
+  double mycost_proc_weighted,maxcost_proc_weighted,nprocs_weighted;
 
   if (bstyle == BISECTION && rcbwt == TIME) {
     timer_cost();
@@ -357,14 +342,13 @@ double FixBalance::compute_scalar()
 }
 
 /* ----------------------------------------------------------------------
-   return stats for last rebalance or cummulative count of rebalances
+   return stats for last rebalance
 ------------------------------------------------------------------------- */
 
 double FixBalance::compute_vector(int i)
 {
   if (i == 0) return maxperproc;
-  if (i == 1) return imbprev;
-  return (double) nbalance;
+  return imbprev;
 }
 
 /* -------------------------------------------------------------------- */
@@ -400,7 +384,7 @@ void FixBalance::timer_cell_weights(double* &weight)
       error->warning(FLERR,"No time history accumulated for fix balance "
         "rcb time, using rcb cell option instead");
     }
-    return;
+return;
   }
 
   Grid::ChildCell *cells = grid->cells;

@@ -54,10 +54,6 @@ enum{INDEX,LOOP,WORLD,UNIVERSE,ULOOP,STRING,GETENV,
      SCALARFILE,FORMAT,EQUAL,PARTICLE,GRID,SURF,INTERNAL};
 enum{ARG,OP};
 
-enum{INT,DOUBLE};                       // several files
-
-enum{PARTICLE_CUSTOM,GRID_CUSTOM,SURF_CUSTOM};
-
 // customize by adding a function
 // if add before OR,
 // also set precedence level in constructor and precedence length in *.h
@@ -67,7 +63,7 @@ enum{DONE,ADD,SUBTRACT,MULTIPLY,DIVIDE,CARAT,MODULO,UNARY,
      SQRT,EXP,LN,LOG,ABS,SIN,COS,TAN,ASIN,ACOS,ATAN,ATAN2,ERF,
      RANDOM,NORMAL,CEIL,FLOOR,ROUND,RAMP,STAGGER,LOGFREQ,STRIDE,
      VDISPLACE,SWIGGLE,CWIGGLE,
-     VALUE,ARRAY,ARRAYINT,PARTARRAYDOUBLE,PARTARRAYINT,SPECARRAY};
+     VALUE,ARRAY,PARTARRAYDOUBLE,PARTARRAYINT,SPECARRAY};
 
 // customize by adding a special function
 
@@ -441,29 +437,13 @@ void Variable::set(int narg, char **arg)
       copy(1,&arg[2],data[nvar]);
     }
 
-  // SURF
+  // SURF (not implemented yet)
   // replace pre-existing var if also style SURF (allows it to be reset)
   // num = 1, which = 1st value
   // data = 1 value, string to eval
 
   } else if (strcmp(arg[1],"surf") == 0) {
-    if (narg != 3) error->all(FLERR,"Illegal variable command");
-    int ivar = find(arg[0]);
-    if (ivar >= 0) {
-      if (style[find(arg[0])] != SURF)
-        error->all(FLERR,"Cannot redefine variable as a different style");
-      delete [] data[ivar][0];
-      copy(1,&arg[2],data[ivar]);
-      replaceflag = 1;
-    } else {
-      if (nvar == maxvar) grow();
-      style[nvar] = SURF;
-      num[nvar] = 1;
-      which[nvar] = 0;
-      pad[nvar] = 0;
-      data[nvar] = new char*[num[nvar]];
-      copy(1,&arg[2],data[nvar]);
-    }
+    error->all(FLERR,"Surf-style variables are not yet implemented");
 
   // INTERNAL
   // replace pre-existing var if also style INTERNAL (allows it to be reset)
@@ -546,13 +526,13 @@ int Variable::next(int narg, char **arg)
       error->all(FLERR,"All variables in next command must be same style");
   }
 
-  // invalid styles: STRING, EQUAL, WORLD, PARTICLE, GRID, SURF,
-  //                 GETENV, FORMAT, INTERNAL
+  // invalid styles: STRING, EQUAL, WORLD, PARTICLE, GRID, GETENV,
+  //                 FORMAT, INTERNAL
 
   int istyle = style[find(arg[0])];
   if (istyle == STRING || istyle == EQUAL || istyle == WORLD ||
       istyle == GETENV || istyle == PARTICLE || istyle == GRID ||
-      istyle == SURF || istyle == FORMAT || istyle == INTERNAL)
+      istyle == FORMAT || istyle == INTERNAL)
     error->all(FLERR,"Invalid variable style with next command");
 
   // if istyle = UNIVERSE or ULOOP, insure all such variables are incremented
@@ -663,7 +643,7 @@ int Variable::next(int narg, char **arg)
    if EQUAL var, evaluate variable and put result in str
    if FORMAT var, evaluate its variable and put formatted result in str
    if GETENV var, query environment and put result in str
-   if PARTICLE or GRID or SURF var, return NULL
+   if PARTICLE or GRID var, return NULL
    if INTERNAL, convert dvalue and put result in str
    return NULL if no variable with name or which value is bad,
      caller must respond
@@ -717,8 +697,7 @@ char *Variable::retrieve(char *name)
   } else if (style[ivar] == INTERNAL) {
     sprintf(data[ivar][0],"%.15g",dvalue[ivar]);
     str = data[ivar][0];
-  } else if (style[ivar] == PARTICLE || style[ivar] == GRID ||
-	     style[ivar] == SURF) return NULL;
+  } else if (style[ivar] == PARTICLE || style[ivar] == GRID) return NULL;
 
   return str;
 }
@@ -755,7 +734,6 @@ double Variable::compute_equal(char *str)
 
 /* ----------------------------------------------------------------------
    compute result of particle-style variable evaluation
-   each proc computes only on particles it owns
    answers are placed every stride locations into result
    if sumflag, add variable values to existing result
 ------------------------------------------------------------------------- */
@@ -797,7 +775,6 @@ void Variable::compute_particle(int ivar, double *result,
 
 /* ----------------------------------------------------------------------
    compute result of grid-style variable evaluation
-   each proc computes only on grid cells it owns
    answers are placed every stride locations into result
    if sumflag, add variable values to existing result
 ------------------------------------------------------------------------- */
@@ -828,51 +805,6 @@ void Variable::compute_grid(int ivar, double *result,
   } else {
     int m = 0;
     for (int i = 0; i < nglocal; i++) {
-      result[m] += eval_tree(tree,i);
-      m += stride;
-    }
-  }
-
-  free_tree(tree);
-
-  eval_in_progress[ivar] = 0;
-}
-
-/* ----------------------------------------------------------------------
-   compute result of surf-style variable evaluation
-   each proc computes only on surf elements it owns
-   if sumflag, add variable values to existing result
-------------------------------------------------------------------------- */
-
-void Variable::compute_surf(int ivar, double *result,
-                            int stride, int sumflag)
-{
-  if (surf->implicit)
-    error->all(FLERR,"Surf-style variables only operate on explicit surfs");
-
-  Tree *tree;
-
-  if (eval_in_progress[ivar])
-    error->all(FLERR,"Variable has circular dependency");
-  eval_in_progress[ivar] = 1;
-
-  nvec_storage = 0;
-  treestyle = SURF;
-  evaluate(data[ivar][0],&tree);
-  collapse_tree(tree);
-
-  int nsown = surf->nown;
-
-  if (sumflag == 0) {
-    int m = 0;
-    for (int i = 0; i < nsown; i++) {
-      result[m] = eval_tree(tree,i);
-      m += stride;
-    }
-
-  } else {
-    int m = 0;
-    for (int i = 0; i < nsown; i++) {
       result[m] += eval_tree(tree,i);
       m += stride;
     }
@@ -1038,7 +970,7 @@ void Variable::copy(int narg, char **from, char **to)
      variable = v_name
    equal-style variable passes in tree = NULL:
      evaluate the formula, return result as a double
-   particle-style or grid-style or surf-style variable passes in tree = non-NULL:
+   particle-style or grid-style variable passes in tree = non-NULL:
      parse the formula but do not evaluate it
      create a parse tree and return it
 ------------------------------------------------------------------------- */
@@ -1124,9 +1056,8 @@ double Variable::evaluate(char *str, Tree **tree)
       delete [] number;
 
     // ----------------
-    // letter: c_ID, c_ID[], c_ID[][], f_ID, f_ID[], f_ID[][],
-    //         p_ID, p_ID[], g_ID, g_ID[], s_ID, s_ID[],
-    //         sc_ID[], sr_ID[], v_name, exp(), x, PI, vol
+    // letter: c_ID, c_ID[], c_ID[][], f_ID, f_ID[], f_ID[][], s_ID[], r_ID[],
+    //         v_name, exp(), x, PI, vol
     // ----------------
 
     } else if (isalpha(onechar)) {
@@ -1188,10 +1119,11 @@ double Variable::evaluate(char *str, Tree **tree)
 
         if (nbracket == 0 && compute->scalar_flag) {
 
-          if (!compute->first_init)
-            error->all(FLERR,"Variable formula compute cannot be invoked"
-                       " before initialized");
-          if (!(compute->invoked_flag & INVOKED_SCALAR)) {
+          if (update->runflag == 0) {
+            if (compute->invoked_scalar != update->ntimestep)
+              error->all(FLERR,"Compute used in variable between runs "
+                         "is not current");
+          } else if (!(compute->invoked_flag & INVOKED_SCALAR)) {
             compute->compute_scalar();
             compute->invoked_flag |= INVOKED_SCALAR;
           }
@@ -1212,10 +1144,11 @@ double Variable::evaluate(char *str, Tree **tree)
           if (index1 > compute->size_vector)
             error->all(FLERR,"Variable formula compute vector "
                        "is accessed out-of-range");
-          if (!compute->first_init)
-            error->all(FLERR,"Variable formula compute cannot be invoked"
-                       " before initialized");
-          if (!(compute->invoked_flag & INVOKED_VECTOR)) {
+          if (update->runflag == 0) {
+            if (compute->invoked_vector != update->ntimestep)
+              error->all(FLERR,"Compute used in variable between runs "
+                         "is not current");
+          } else if (!(compute->invoked_flag & INVOKED_VECTOR)) {
             compute->compute_vector();
             compute->invoked_flag |= INVOKED_VECTOR;
           }
@@ -1239,10 +1172,11 @@ double Variable::evaluate(char *str, Tree **tree)
           if (index2 > compute->size_array_cols)
             error->all(FLERR,"Variable formula compute array "
                        "is accessed out-of-range");
-          if (!compute->first_init)
-            error->all(FLERR,"Variable formula compute cannot be invoked"
-                       " before initialized");
-          if (!(compute->invoked_flag & INVOKED_ARRAY)) {
+          if (update->runflag == 0) {
+            if (compute->invoked_array != update->ntimestep)
+              error->all(FLERR,"Compute used in variable between runs "
+                         "is not current");
+          } else if (!(compute->invoked_flag & INVOKED_ARRAY)) {
             compute->compute_array();
             compute->invoked_flag |= INVOKED_ARRAY;
           }
@@ -1264,10 +1198,11 @@ double Variable::evaluate(char *str, Tree **tree)
           if (tree == NULL || treestyle != PARTICLE)
             error->all(FLERR,"Per-particle compute in "
                        "non particle-style variable formula");
-          if (!compute->first_init)
-            error->all(FLERR,"Variable formula compute cannot be invoked"
-                       " before initialized");
-          if (!(compute->invoked_flag & INVOKED_PER_PARTICLE)) {
+          if (update->runflag == 0) {
+            if (compute->invoked_per_particle != update->ntimestep)
+              error->all(FLERR,"Compute used in variable between runs "
+                         "is not current");
+          } else if (!(compute->invoked_flag & INVOKED_PER_PARTICLE)) {
             compute->compute_per_particle();
             compute->invoked_flag |= INVOKED_PER_PARTICLE;
           }
@@ -1291,10 +1226,11 @@ double Variable::evaluate(char *str, Tree **tree)
           if (index1 > compute->size_per_particle_cols)
             error->all(FLERR,"Variable formula compute array "
                        "is accessed out-of-range");
-          if (!compute->first_init)
-            error->all(FLERR,"Variable formula compute cannot be invoked"
-                       " before initialized");
-          if (!(compute->invoked_flag & INVOKED_PER_PARTICLE)) {
+          if (update->runflag == 0) {
+            if (compute->invoked_per_particle != update->ntimestep)
+              error->all(FLERR,"Compute used in variable between runs "
+                         "is not current");
+          } else if (!(compute->invoked_flag & INVOKED_PER_PARTICLE)) {
             compute->compute_per_particle();
             compute->invoked_flag |= INVOKED_PER_PARTICLE;
           }
@@ -1315,10 +1251,11 @@ double Variable::evaluate(char *str, Tree **tree)
           if (tree == NULL || treestyle != GRID)
             error->all(FLERR,"Per-grid compute in "
                        "non grid-style variable formula");
-          if (!compute->first_init)
-            error->all(FLERR,"Variable formula compute cannot be invoked"
-                       " before initialized");
-          if (!(compute->invoked_flag & INVOKED_PER_GRID)) {
+          if (update->runflag == 0) {
+            if (compute->invoked_per_grid != update->ntimestep)
+              error->all(FLERR,"Compute used in variable between runs "
+                         "is not current");
+          } else if (!(compute->invoked_flag & INVOKED_PER_GRID)) {
             compute->compute_per_grid();
             compute->invoked_flag |= INVOKED_PER_GRID;
           }
@@ -1340,7 +1277,7 @@ double Variable::evaluate(char *str, Tree **tree)
         // if compute sets post_process_grid_flag:
         //   then values are in computes's vector_grid,
         //   must store them locally via add_vector()
-        //   since compute's vector_grid will be overwritten
+        //   since compute's vector_grid be overwritten
         //   if this variable accesses multiple columns from compute's array
 
         } else if (nbracket == 1 && compute->per_grid_flag &&
@@ -1352,10 +1289,11 @@ double Variable::evaluate(char *str, Tree **tree)
           if (index1 > compute->size_per_grid_cols)
             error->all(FLERR,"Variable formula compute array "
                        "is accessed out-of-range");
-          if (!compute->first_init)
-            error->all(FLERR,"Variable formula compute cannot be invoked"
-                       " before initialized");
-          if (!(compute->invoked_flag & INVOKED_PER_GRID)) {
+          if (update->runflag == 0) {
+            if (compute->invoked_per_grid != update->ntimestep)
+              error->all(FLERR,"Compute used in variable between runs "
+                         "is not current");
+          } else if (!(compute->invoked_flag & INVOKED_PER_GRID)) {
             compute->compute_per_grid();
             compute->invoked_flag |= INVOKED_PER_GRID;
           }
@@ -1378,63 +1316,6 @@ double Variable::evaluate(char *str, Tree **tree)
           newtree->left = newtree->middle = newtree->right = NULL;
           treestack[ntreestack++] = newtree;
 
-	// c_ID = vector from per-surf vector
-
-        } else if (nbracket == 0 && compute->per_surf_flag &&
-                   compute->size_per_surf_cols == 0) {
-
-          if (tree == NULL || treestyle != SURF)
-            error->all(FLERR,"Per-surf compute in "
-                       "non surf-style variable formula");
-          if (!compute->first_init)
-            error->all(FLERR,"Variable formula compute cannot be invoked"
-                       " before initialized");
-          if (!(compute->invoked_flag & INVOKED_PER_SURF)) {
-            compute->compute_per_surf();
-            compute->invoked_flag |= INVOKED_PER_SURF;
-          }
-
-	  compute->post_process_surf();
-
-          Tree *newtree = new Tree();
-          newtree->type = ARRAY;
-          newtree->array = compute->vector_surf;
-          newtree->nstride = 1;
-          newtree->selfalloc = 0;
-          newtree->left = newtree->middle = newtree->right = NULL;
-          treestack[ntreestack++] = newtree;
-	
-	// c_ID[i] = vector from per-surf array
-
-        } else if (nbracket == 1 && compute->per_surf_flag &&
-                   compute->size_per_surf_cols > 0) {
-
-          if (tree == NULL || treestyle != SURF)
-            error->all(FLERR,"Per-surf compute in "
-                       "non surf-style variable formula");
-          if (index1 > compute->size_per_surf_cols)
-            error->all(FLERR,"Variable formula compute array "
-                       "is accessed out-of-range");
-          if (!compute->first_init)
-            error->all(FLERR,"Variable formula compute cannot be invoked"
-                       " before initialized");
-          if (!(compute->invoked_flag & INVOKED_PER_SURF)) {
-            compute->compute_per_surf();
-            compute->invoked_flag |= INVOKED_PER_SURF;
-          }
-
-	  compute->post_process_surf();
-
-          Tree *newtree = new Tree();
-          newtree->type = ARRAY;
-	  newtree->array = &compute->array_surf[0][index1-1];
-	  newtree->nstride = compute->size_per_surf_cols;
-          newtree->selfalloc = 0;
-          newtree->left = newtree->middle = newtree->right = NULL;
-          treestack[ntreestack++] = newtree;
-
-	// unrecognized compute
-	
         } else error->all(FLERR,"Mismatched compute in variable formula");
 
       // ----------------
@@ -1616,191 +1497,20 @@ double Variable::evaluate(char *str, Tree **tree)
           newtree->left = newtree->middle = newtree->right = NULL;
           treestack[ntreestack++] = newtree;
 
-        // f_ID = vector from per-surf vector
-
-        } else if (nbracket == 0 && fix->per_surf_flag &&
-                   fix->size_per_surf_cols == 0) {
-
-          if (tree == NULL || treestyle != SURF)
-            error->all(FLERR,"Per-surf fix in "
-                       "non surf-style variable formula");
-          if (update->runflag > 0 &&
-              update->ntimestep % fix->per_surf_freq)
-            error->all(FLERR,"Fix in variable not computed at compatible time");
-
-          Tree *newtree = new Tree();
-          newtree->type = ARRAY;
-          newtree->array = fix->vector_surf;
-          newtree->nstride = 1;
-          newtree->selfalloc = 0;
-          newtree->left = newtree->middle = newtree->right = NULL;
-          treestack[ntreestack++] = newtree;
-
-        // f_ID[i] = vector from per-surf array
-
-        } else if (nbracket == 1 && fix->per_surf_flag &&
-                   fix->size_per_surf_cols > 0) {
-
-          if (tree == NULL || treestyle != SURF)
-            error->all(FLERR,"Per-surf fix in "
-                       "non surf-style variable formula");
-          if (index1 > fix->size_per_surf_cols)
-            error->all(FLERR,
-                       "Variable formula fix array is accessed out-of-range");
-          if (update->runflag > 0 &&
-              update->ntimestep % fix->per_surf_freq)
-            error->all(FLERR,"Fix in variable not computed at compatible time");
-
-          Tree *newtree = new Tree();
-          newtree->type = ARRAY;
-          newtree->array = &fix->array_surf[0][index1-1];
-          newtree->nstride = fix->size_per_surf_cols;
-          newtree->selfalloc = 0;
-          newtree->left = newtree->middle = newtree->right = NULL;
-          treestack[ntreestack++] = newtree;
-
-	// unrecognized fix
-	
-	} else error->all(FLERR,"Mismatched fix in variable formula");
-
-      // ----------------
-      // custom per-particle, per-grid, per-surf data
-      // ----------------
-
-      } else if ((strncmp(word,"p_",2) == 0) ||
-                 (strncmp(word,"g_",2) == 0) ||
-                 (strncmp(word,"s_",2) == 0)) {
-
-        if (domain->box_exist == 0)
-          error->all(FLERR,
-                     "Custom attribute evaluation before simulation box is defined");
-
-	int cwhich;
-	if (strncmp(word,"p_",2) == 0) cwhich = PARTICLE_CUSTOM;
-	else if (strncmp(word,"g_",2) == 0) cwhich = GRID_CUSTOM;
-	else if (strncmp(word,"s_",2) == 0) cwhich = SURF_CUSTOM;
-	
-        n = strlen(word) - 2 + 1;
-        char *id = new char[n];
-        strcpy(id,&word[2]);
-
-	int icustom,size,type;
-	if (cwhich == PARTICLE_CUSTOM) {
-	  if (tree == NULL || treestyle != PARTICLE)
-	    error->all(FLERR,"Per-particle custom attribute in "
-		       "non particle-style variable formula");
-	  icustom = particle->find_custom(id);
-	  if (icustom < 0)
-	    error->all(FLERR,"Invalid custom attribute ID in variable formula");
-	  size = particle->esize[icustom];
-	  type = particle->etype[icustom];
-	} else if (cwhich == GRID_CUSTOM) {
-	  if (tree == NULL || treestyle != GRID)
-	    error->all(FLERR,"Per-grid custom attribute in "
-		       "non grid-style variable formula");
-	  icustom = grid->find_custom(id);
-	  if (icustom < 0)
-	    error->all(FLERR,"Invalid custom attribute ID in variable formula");
-	  size = grid->esize[icustom];
-	  type = grid->etype[icustom];
-	} else if (cwhich == SURF_CUSTOM) {
-	  if (tree == NULL || treestyle != SURF)
-	    error->all(FLERR,"Per-surf custom attribute in "
-		       "non surf-style variable formula");
-	  icustom = surf->find_custom(id);
-	  if (icustom < 0)
-	    error->all(FLERR,"Invalid custom attribute ID in variable formula");
-	  size = surf->esize[icustom];
-	  type = surf->etype[icustom];
-	}
-	
-        delete [] id;
-
-        // parse zero or one or two trailing brackets
-        // point i beyond last bracket
-        // nbracket = # of bracket pairs
-        // index1,index2 = int inside each bracket pair
-
-        int nbracket,index1;
-        if (str[i] != '[') nbracket = 0;
-        else {
-          nbracket = 1;
-          ptr = &str[i];
-          index1 = int_between_brackets(ptr,1);
-          i = ptr-str+1;
-          if (str[i] == '[') {
-            nbracket = 2;
-            ptr = &str[i];
-            i = ptr-str+1;
-          }
-        }
-	
-	if (nbracket == 0 && size == 0) {
-	
-	  Tree *newtree = new Tree();
-	  if (type == INT) {
-	    newtree->type = ARRAYINT;
-	    if (cwhich == PARTICLE_CUSTOM)
-	      newtree->iarray = particle->eivec[particle->ewhich[icustom]];
-	    else if (cwhich == GRID_CUSTOM)
-	      newtree->iarray = grid->eivec[grid->ewhich[icustom]];
-	    else if (cwhich == SURF_CUSTOM)
-	      newtree->iarray = surf->eivec[surf->ewhich[icustom]];
-	  } else if (type == DOUBLE) {
-	    newtree->type = ARRAY;
-	    if (cwhich == PARTICLE_CUSTOM)
-	      newtree->array = particle->edvec[particle->ewhich[icustom]];
-	    else if (cwhich == GRID_CUSTOM)
-	      newtree->array = grid->edvec[grid->ewhich[icustom]];
-	    else if (cwhich == SURF_CUSTOM)
-	      newtree->array = surf->edvec[surf->ewhich[icustom]];
-	  }
-	  newtree->nstride = 1;
-	  newtree->selfalloc = 0;
-	  newtree->left = newtree->middle = newtree->right = NULL;
-	  treestack[ntreestack++] = newtree;
-	
-	} else if (nbracket == 1 && size > 0) {
-	
-	  Tree *newtree = new Tree();
-	  if (type == INT) {
-	    newtree->type = ARRAYINT;
-	    if (cwhich == PARTICLE_CUSTOM)
-	      newtree->iarray = particle->eiarray[particle->ewhich[icustom]][index1-1];
-	    else if (cwhich == GRID_CUSTOM)
-	      newtree->iarray = grid->eiarray[grid->ewhich[icustom]][index1-1];
-	    else if (cwhich == SURF_CUSTOM)
-	      newtree->iarray = surf->eiarray[surf->ewhich[icustom]][index1-1];
-	  } else if (type == DOUBLE) {
-	    newtree->type = ARRAY;
-	    if (cwhich == PARTICLE_CUSTOM)
-	      newtree->array = particle->edvec[particle->ewhich[icustom]];
-	    else if (cwhich == GRID_CUSTOM)
-	      newtree->array = grid->edvec[grid->ewhich[icustom]];
-	    else if (cwhich == SURF_CUSTOM)
-	      newtree->array = surf->edvec[surf->ewhich[icustom]];
-	  }
-	  newtree->nstride = size;
-	  newtree->selfalloc = 0;
-	  newtree->left = newtree->middle = newtree->right = NULL;
-	  treestack[ntreestack++] = newtree;
-
-	// unrecognized custom attribute
-	
-	} else error->all(FLERR,"Mismatched custom attribute in variable formula");
+        } else error->all(FLERR,"Mismatched fix in variable formula");
 
       // ----------------
       // surface collide model
       // ----------------
 
-      } else if (strncmp(word,"sc_",3) == 0) {
+      } else if (strncmp(word,"s_",2) == 0) {
         if (domain->box_exist == 0)
           error->all(FLERR,
                      "Variable evaluation before simulation box is defined");
 
-        n = strlen(word) - 3 + 1;
+        n = strlen(word) - 2 + 1;
         char *id = new char[n];
-        strcpy(id,&word[3]);
+        strcpy(id,&word[2]);
 
         int isc = surf->find_collide(id);
         if (isc < 0)
@@ -1827,7 +1537,7 @@ double Variable::evaluate(char *str, Tree **tree)
           }
         }
 
-        // sc_ID[i] = scalar from global vector
+        // s_ID[i] = scalar from global vector
 
         if (nbracket == 1 && sc->vector_flag) {
           if (index1 > sc->size_vector)
@@ -1849,14 +1559,14 @@ double Variable::evaluate(char *str, Tree **tree)
       // surface reaction model
       // ----------------
 
-      } else if (strncmp(word,"sr_",3) == 0) {
+      } else if (strncmp(word,"r_",2) == 0) {
         if (domain->box_exist == 0)
           error->all(FLERR,
                      "Variable evaluation before simulation box is defined");
 
-        n = strlen(word) - 3 + 1;
+        n = strlen(word) - 2 + 1;
         char *id = new char[n];
-        strcpy(id,&word[3]);
+        strcpy(id,&word[2]);
 
         int isr = surf->find_react(id);
         if (isr < 0)
@@ -1884,7 +1594,7 @@ double Variable::evaluate(char *str, Tree **tree)
           }
         }
 
-        // sr_ID[i] = scalar from global vector
+        // r_ID[i] = scalar from global vector
 
         if (nbracket == 1 && sr->vector_flag) {
           if (index1 > sr->size_vector)
@@ -1944,11 +1654,11 @@ double Variable::evaluate(char *str, Tree **tree)
             treestack[ntreestack++] = newtree;
           } else argstack[nargstack++] = value1;
 
-        // v_name = scalar from non particle/grid/surf variable
+        // v_name = scalar from non particle/grid variable
         // access value via retrieve()
 
         } else if (nbracket == 0 && style[ivar] != PARTICLE &&
-                   style[ivar] != GRID && style[ivar] != SURF) {
+                   style[ivar] != GRID) {
 
           char *var = retrieve(id);
           if (var == NULL)
@@ -1985,27 +1695,12 @@ double Variable::evaluate(char *str, Tree **tree)
           evaluate(data[ivar][0],&newtree);
           treestack[ntreestack++] = newtree;
 
-        // v_name = per-surf vector from surf-style variable
-        // evaluate the surf-style variable as newtree
-
-        } else if (nbracket == 0 && style[ivar] == SURF) {
-
-          if (tree == NULL || treestyle != SURF)
-            error->all(FLERR,"Per-surf variable in "
-                       "non surf-style variable formula");
-          Tree *newtree;
-          evaluate(data[ivar][0],&newtree);
-          treestack[ntreestack++] = newtree;
-
-	// unrecognized variable
-	
         } else error->all(FLERR,"Mismatched variable in variable formula");
 
         delete [] id;
 
       // ----------------
-      // math/special function or particle vector or grid vector or
-      //   constant or stats keyword
+      // math/special function or particle vector or constant or stats keyword
       // ----------------
 
       } else {
@@ -2246,11 +1941,11 @@ double Variable::evaluate(char *str, Tree **tree)
 }
 
 /* ----------------------------------------------------------------------
-   one-time collapse of a particle-, grid-, or surf-style variable parse tree
+   one-time collapse of a particle-style or grid-style variable parse tree
    tree was created by one-time parsing of formula string via evaulate()
    only keep tree nodes that depend on ARRAYs
    remainder is converted to single VALUE
-   this enables optimal eval_tree loop over particles, grid cells, or surf elements
+   this enables optimal eval_tree loop over particles or grid cells
    customize by adding a function:
      sqrt(),exp(),ln(),log(),abs(),sin(),cos(),tan(),asin(),acos(),atan(),
      atan2(y,x),random(x,y),normal(x,y),ceil(),floor(),round(),
@@ -2264,7 +1959,6 @@ double Variable::collapse_tree(Tree *tree)
 
   if (tree->type == VALUE) return tree->value;
   if (tree->type == ARRAY) return 0.0;
-  if (tree->type == ARRAYINT) return 0.0;
   if (tree->type == PARTARRAYDOUBLE) return 0.0;
   if (tree->type == PARTARRAYINT) return 0.0;
   if (tree->type == SPECARRAY) return 0.0;
@@ -2697,7 +2391,6 @@ double Variable::collapse_tree(Tree *tree)
 /* ----------------------------------------------------------------------
    evaluate a particle-style variable parse tree for particle I
      or a grid-style variable parse tree for grid cell I
-     or a surf-style variable parse tree for surf element I
    tree was created by one-time parsing of formula string via evaulate()
    customize by adding a function:
      sqrt(),exp(),ln(),log(),sin(),cos(),tan(),asin(),acos(),atan(),
@@ -2712,7 +2405,6 @@ double Variable::eval_tree(Tree *tree, int i)
 
   if (tree->type == VALUE) return tree->value;
   if (tree->type == ARRAY) return tree->array[i*tree->nstride];
-  if (tree->type == ARRAYINT) return tree->iarray[i*tree->nstride];
   if (tree->type == PARTARRAYDOUBLE)
     return *((double *) &tree->carray[i*tree->nstride]);
   if (tree->type == PARTARRAYINT)
@@ -2999,7 +2691,7 @@ int Variable::find_matching_paren(char *str, int i,char *&contents)
    if varallow = 1: also allow for v_name, where name is variable name
 ------------------------------------------------------------------------- */
 
-int Variable::int_between_brackets(char *&ptr, int varallow, const char *caller)
+int Variable::int_between_brackets(char *&ptr, int varallow)
 {
   int varflag,index;
 
@@ -3017,25 +2709,14 @@ int Variable::int_between_brackets(char *&ptr, int varallow, const char *caller)
   } else {
     varflag = 0;
     while (*ptr && *ptr != ']') {
-      if (!isdigit(*ptr)) {
-        char str[128];
-        sprintf(str,"Non digit character between brackets in %s",caller);
-        error->all(FLERR,str);
-      }
+      if (!isdigit(*ptr))
+        error->all(FLERR,"Non digit character between brackets in variable");
       ptr++;
     }
   }
 
-  if (*ptr != ']') {
-    char str[128];
-    sprintf(str,"Mismatched brackets in %s",caller);
-    error->all(FLERR,str);
-  }
-  if (ptr == start) {
-    char str[128];
-    sprintf(str,"Empty brackets in %s",caller);
-    error->all(FLERR,str);
-  }
+  if (*ptr != ']') error->all(FLERR,"Mismatched brackets in variable");
+  if (ptr == start) error->all(FLERR,"Empty brackets in variable");
 
   *ptr = '\0';
 
@@ -3060,11 +2741,8 @@ int Variable::int_between_brackets(char *&ptr, int varallow, const char *caller)
 
   *ptr = ']';
 
-  if (index == 0) {
-    char str[128];
-    sprintf(str,"Index between brackets must be positive in %s",caller);
-    error->all(FLERR,str);
-  }
+  if (index == 0)
+    error->all(FLERR,"Index between variable brackets must be positive");
   return index;
 }
 
@@ -3516,10 +3194,11 @@ int Variable::special_function(char *word, char *contents, Tree **tree,
         error->all(FLERR,"Invalid compute ID in variable formula");
       compute = modify->compute[icompute];
       if (index == 0 && compute->vector_flag) {
-        if (!compute->first_init)
-          error->all(FLERR,"Variable formula compute cannot be invoked"
-                     " before initialized");
-        if (!(compute->invoked_flag & INVOKED_VECTOR)) {
+        if (update->runflag == 0) {
+          if (compute->invoked_vector != update->ntimestep)
+            error->all(FLERR,
+                       "Compute used in variable between runs is not current");
+        } else if (!(compute->invoked_flag & INVOKED_VECTOR)) {
           compute->compute_vector();
           compute->invoked_flag |= INVOKED_VECTOR;
         }
@@ -3529,10 +3208,11 @@ int Variable::special_function(char *word, char *contents, Tree **tree,
         if (index > compute->size_array_cols)
           error->all(FLERR,"Variable formula compute array "
                      "is accessed out-of-range");
-        if (!compute->first_init)
-          error->all(FLERR,"Variable formula compute cannot be invoked"
-                     " before initialized");
-        if (!(compute->invoked_flag & INVOKED_ARRAY)) {
+        if (update->runflag == 0) {
+          if (compute->invoked_array != update->ntimestep)
+            error->all(FLERR,
+                       "Compute used in variable between runs is not current");
+        } else if (!(compute->invoked_flag & INVOKED_ARRAY)) {
           compute->compute_array();
           compute->invoked_flag |= INVOKED_ARRAY;
         }
@@ -3686,7 +3366,7 @@ int Variable::special_function(char *word, char *contents, Tree **tree,
    check if word matches a particle vector
    return 1 if yes, else 0
    customize by adding a particle vector:
-     x,y,z,vx,vy,vz,id,type,mass,q,mu
+     x,y,z,vx,vy,vz,type,mass,q,mu
 ------------------------------------------------------------------------- */
 
 int Variable::is_particle_vector(char *word)
@@ -3697,7 +3377,6 @@ int Variable::is_particle_vector(char *word)
   if (strcmp(word,"vx") == 0) return 1;
   if (strcmp(word,"vy") == 0) return 1;
   if (strcmp(word,"vz") == 0) return 1;
-  if (strcmp(word,"id") == 0) return 1;
   if (strcmp(word,"type") == 0) return 1;
   if (strcmp(word,"mass") == 0) return 1;
   if (strcmp(word,"q") == 0) return 1;
@@ -3710,7 +3389,7 @@ int Variable::is_particle_vector(char *word)
    push result onto tree
    word = particle vector
    customize by adding a particle vector:
-     id,x,y,z,vx,vy,vz,type,mass,q,mu
+     x,y,z,vx,vy,vz,type,mass,q,mu
 ------------------------------------------------------------------------- */
 
 void Variable::particle_vector(char *word, Tree **tree,
@@ -3741,10 +3420,7 @@ void Variable::particle_vector(char *word, Tree **tree,
   else if (strcmp(word,"vz") == 0)
     newtree->carray = (char *) &particles[0].v[2];
 
-  else if (strcmp(word,"id") == 0) {
-    newtree->type = PARTARRAYINT;
-    newtree->carray = (char *) &particles[0].id;
-  } else if (strcmp(word,"type") == 0) {
+  else if (strcmp(word,"type") == 0) {
     newtree->type = PARTARRAYINT;
     newtree->carray = (char *) &particles[0].ispecies;
   } else if (strcmp(word,"mass") == 0) {
