@@ -14,23 +14,23 @@
 
 #ifdef SURF_COLLIDE_CLASS
 
-SurfCollideStyle(diffuse,SurfCollideDiffuse)
+SurfCollideStyle(mixed,SurfCollideMixed)
 
 #else
 
-#ifndef SPARTA_SURF_COLLIDE_DIFFUSE_H
-#define SPARTA_SURF_COLLIDE_DIFFUSE_H
+#ifndef SPARTA_SURF_COLLIDE_MIXED_H
+#define SPARTA_SURF_COLLIDE_MIXED_H
 
 #include "surf_collide.h"
 #include "surf.h"
 
 namespace SPARTA_NS {
 
-class SurfCollideDiffuse : public SurfCollide {
+class SurfCollideMixed : public SurfCollide {
  public:
-  SurfCollideDiffuse(class SPARTA *, int, char **);
-  SurfCollideDiffuse(class SPARTA *sparta) : SurfCollide(sparta) {} // needed Kokkos
-  virtual ~SurfCollideDiffuse();
+  SurfCollideMixed(class SPARTA *, int, char **);
+  SurfCollideMixed(class SPARTA *sparta) : SurfCollide(sparta) {} // needed Kokkos
+  virtual ~SurfCollideMixed();
   virtual void init();
   Particle::OnePart *collide(Particle::OnePart *&, double &,
                              int, double *, int, int &);
@@ -38,12 +38,16 @@ class SurfCollideDiffuse : public SurfCollide {
   void flags_and_coeffs(int *, double *);
 
  protected:
+  int *stype;                // surface collision type for each species
+  int dflag, sflag, aflag;   // surface used flags
+
   double acc;                // surface accomodation coeff
   double vx,vy,vz;           // translational velocity of surface
   double wx,wy,wz;           // angular velocity of surface
   double px,py,pz;           // point to rotate surface around
   int tflag,rflag;           // flags for translation and rotation
   int trflag;                // 1 if either tflag or rflag is set
+  int noslip_flag;           // 1 if no slip at wall
 
   Surf::Line *lines;
   Surf::Tri *tris;
@@ -52,6 +56,8 @@ class SurfCollideDiffuse : public SurfCollide {
   class RanKnuth *random;     // RNG for particle reflection
 
   void diffuse(Particle::OnePart *, double *);
+  void specular(Particle::OnePart *, double *);
+  void scatter_isotropic(Particle::OnePart *, double *);
 };
 
 }

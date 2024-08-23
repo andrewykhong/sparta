@@ -14,6 +14,7 @@
 
 #include "math.h"
 #include "string.h"
+#include "ctype.h"
 #include "stdlib.h"
 #include "collide_vss.h"
 #include "grid.h"
@@ -106,7 +107,6 @@ double CollideVSS::vremax_init(int igroup, int jgroup)
 {
   // parent has set mixture ptr
 
-  Particle::Species *species = particle->species;
   double *vscale = mixture->vscale;
   int *mix2group = mixture->mix2group;
   int nspecies = particle->nspecies;
@@ -427,7 +427,7 @@ void CollideVSS::EEXCHANGE_NonReactingEDisposal(Particle::OnePart *ip,
 {
 
   double State_prob,Fraction_Rot,Fraction_Vib,E_Dispose;
-  int i,rotdof,vibdof,max_level,ivib,irot;
+  int i,rotdof,vibdof,max_level,ivib;
 
   Particle::OnePart *p;
   Particle::Species *species = particle->species;
@@ -634,7 +634,7 @@ void CollideVSS::EEXCHANGE_ReactingEDisposal(Particle::OnePart *ip,
                                              Particle::OnePart *kp)
 {
   double State_prob,Fraction_Rot,Fraction_Vib;
-  int i,numspecies,rotdof,vibdof,max_level,ivib,irot;
+  int i,numspecies,rotdof,vibdof,max_level,ivib;
   double aveomega,pevib;
 
   Particle::OnePart *p;
@@ -859,7 +859,8 @@ void CollideVSS::read_param_file(char *fname)
 
     // if we don't match a species with second word, but it's not a number,
     // skip the line (it involves a species we aren't using)
-    if ( jsp < 0 &&  !(atof(words[1]) > 0) ) continue;
+    // if ( jsp < 0 && !(atof(words[1]) > 0) ) continue;
+    if ( jsp < 0 && !(isdigit(words[1][0])) ) continue;
 
     if (jsp < 0 ) {
       params[isp][isp].diam = atof(words[1]);
@@ -874,7 +875,7 @@ void CollideVSS::read_param_file(char *fname)
         params[isp][isp].vibc1 = atof(words[7]);
         params[isp][isp].vibc2 = atof(words[8]);
       }
-    }else {
+    } else {
       if (nwords < REQWORDS+1)  // one extra word in cross-species lines
         error->one(FLERR,"Incorrect line format in VSS parameter file");
       params[isp][jsp].diam = params[jsp][isp].diam = atof(words[2]);

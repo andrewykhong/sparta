@@ -50,12 +50,14 @@ class Mixture : protected Pointers {
 
                               // per-species attributes
   double *fraction;           // relative fraction of each species
+  double *fraction_wt;           // relative fraction of each species
   int *fraction_flag;         // 1 if user set fraction for a species
   double *fraction_user;      // user fractional value
 
   // set by init()
 
   double *cummulative;        // cummulative fraction for each species
+  double *cummulative_wt;   // cummulative fraction for each species
   int *groupsize;             // # of species in each group
   int **groupspecies;         // list of particle species indices in each group
   int *species2group;         // s2g[i] = group that particle species I is in
@@ -71,6 +73,7 @@ class Mixture : protected Pointers {
   void command(int, char **);
   void init();
   int init_fraction(int *, double *, double *, double *);
+  int init_fraction_wt(int *, double *, double *, double *);
   void add_species_default(char *);
   int find_group(const char *);
   void write_restart(FILE *fp);

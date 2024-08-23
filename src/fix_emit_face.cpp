@@ -267,7 +267,6 @@ void FixEmitFace::create_task(int icell)
 
   // loop over 6 faces of icell
 
-  int ntaskorig = ntask;
   int nmask = cells[icell].nmask;
 
   for (i = 0; i < 6; i++) {
@@ -412,8 +411,9 @@ void FixEmitFace::create_task(int icell)
 
     tasks[ntask].ntarget = 0.0;
     for (isp = 0; isp < nspecies; isp++) {
+      int ispecies = particle->mixture[imix]->species[isp];
       ntargetsp = mol_inflow(indot,vscale[isp],fraction[isp]);
-      ntargetsp *= nrho*area*dt / fnum;
+      ntargetsp *= nrho*area*dt / (fnum*particle->species[ispecies].specwt);
       ntargetsp /= cinfo[icell].weight;
       tasks[ntask].ntarget += ntargetsp;
       if (perspecies) tasks[ntask].ntargetsp[isp] = ntargetsp;
@@ -888,7 +888,7 @@ void FixEmitFace::subsonic_inflow()
       mass = species[mspecies[isp]].mass;
       vscale = sqrt(2.0 * boltz * temp_thermal / mass);
       ntargetsp = mol_inflow(indot,vscale,fraction[isp]);
-      ntargetsp *= nrho*area*dt / fnum;
+      ntargetsp *= nrho*area*dt / (fnum*species[mspecies[isp]].specwt);
       ntargetsp /= cinfo[icell].weight;
       tasks[i].ntarget += ntargetsp;
       if (perspecies) tasks[i].ntargetsp[isp] = ntargetsp;
@@ -960,11 +960,11 @@ void FixEmitFace::subsonic_sort()
    only for grid cells associated with a task
    first compute for grid cells, then adjust due to boundary conditions
 ------------------------------------------------------------------------- */
-
+// TODO: Test subsonic for species-dependent weights
 void FixEmitFace::subsonic_grid()
 {
   int m,ip,np,icell,ispecies,ndim;
-  double mass,masstot,gamma,ke,sign;
+  double mass,masstot,gamma,ke,sign,double_np;
   double nrho_cell,massrho_cell,temp_thermal_cell,press_cell;
   double mass_cell,gamma_cell,soundspeed_cell;
   double mv[4];
@@ -989,20 +989,23 @@ void FixEmitFace::subsonic_grid()
 
     mv[0] = mv[1] = mv[2] = mv[3] = 0.0;
     masstot = gamma = 0.0;
+    double_np = 0.0;
 
     ip = cinfo[icell].first;
     while (ip >= 0) {
       ispecies = particles[ip].ispecies;
-      mass = species[ispecies].mass;
+      mass = species[ispecies].mass*species[ispecies].specwt;
       v = particles[ip].v;
       mv[0] += mass*v[0];
       mv[1] += mass*v[1];
       mv[2] += mass*v[2];
-      mv[3] += mass * (v[0]*v[0]+v[1]*v[1]+v[2]*v[2]);
+      mv[3] += mass*(v[0]*v[0]+v[1]*v[1]+v[2]*v[2]);
       masstot += mass;
+      double_np += species[ispecies].specwt;
       gamma += 1.0 + 2.0 / (3.0 + species[ispecies].rotdof);
       ip = next[ip];
     }
+    np = static_cast <int> (double_np);
 
     // compute/store nrho, 3 temps, vstream for task
     // also vscale for PONLY

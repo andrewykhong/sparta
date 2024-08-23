@@ -35,6 +35,7 @@ class CreateParticles : protected Pointers {
 
  protected:
   int imix,single,cutflag,mspecies,twopass;
+  int weight,ifix; // for weight dependent species
   bigint np;
   double xp,yp,zp,vx,vy,vz;
   class Region *region;
@@ -54,8 +55,8 @@ class CreateParticles : protected Pointers {
   char *vstrx_copy,*vstry_copy,*vstrz_copy;
 
   virtual void create_single();
-  virtual void create_local();
-  virtual void create_local_twopass();
+  void create_local();
+  void create_local_twopass();
   int species_variable(double *);
   double density_variable(double *, double *);
   double temperature_variable(double *);

@@ -15,7 +15,7 @@
 #include "math.h"
 #include "stdlib.h"
 #include "string.h"
-#include "surf_collide_diffuse.h"
+#include "surf_collide_mixed.h"
 #include "surf.h"
 #include "surf_react.h"
 #include "input.h"
@@ -23,6 +23,7 @@
 #include "particle.h"
 #include "domain.h"
 #include "update.h"
+#include "memory.h"
 #include "modify.h"
 #include "comm.h"
 #include "random_mars.h"
@@ -35,35 +36,72 @@ using namespace SPARTA_NS;
 using namespace MathConst;
 
 enum{NUMERIC,CUSTOM,VARIABLE,VAREQUAL,VARSURF};   // surf_collide classes
+enum{DIFFUSE,SPECULAR,ADIABATIC,CLL};
+enum{NONE,DISCRETE,SMOOTH};
 
+// straightforward to add other surface models:
+// add surface tpye into loop and into above enum
 /* ---------------------------------------------------------------------- */
 
-SurfCollideDiffuse::SurfCollideDiffuse(SPARTA *sparta, int narg, char **arg) :
+SurfCollideMixed::SurfCollideMixed(SPARTA *sparta, int narg, char **arg) :
   SurfCollide(sparta, narg, arg)
 {
-  if (narg < 4) error->all(FLERR,"Illegal surf_collide diffuse command");
+  if (narg < 4) error->all(FLERR,"Illegal surf collide mixed command");
 
-  parse_tsurf(arg[2]);
+  int nspecies = particle->nspecies;
+  memory->create(stype,nspecies,"surf_mixed:stype");
+  for (int i = 0; i < nspecies; i++) stype[i] = -1;
 
-  acc = input->numeric(FLERR,arg[3]);
-  if (acc < 0.0 || acc > 1.0)
-    error->all(FLERR,"Illegal surf_collide diffuse command");
-
-  // optional args
-
+  dflag = rflag = sflag = 0;
   tflag = rflag = 0;
+  noslip_flag = 0;
 
-  int iarg = 4;
+  // find all species
+
+  int iarg = 2;
+  int lline;
+  int isp;
   while (iarg < narg) {
-    if (strcmp(arg[iarg],"temp/freq") == 0) {
-      if (iarg+2 > narg)
-        error->all(FLERR,"Illegal surf_collide diffuse command");
-      tfreq = atoi(arg[iarg+1]);
-      if (tfreq <= 0) error->all(FLERR,"Illegal surf_collide diffuse command");
-      iarg += 2;
+    if(strcmp(arg[iarg],"diffuse") == 0) {
+      dflag = 1;
+      iarg++;
+      while (1) {
+        isp = particle->find_species(arg[iarg]);
+        if (isp < 0) break;
+        stype[isp] = DIFFUSE;
+        iarg++;
+      }
+      parse_tsurf(arg[iarg++]);
+      acc = atof(arg[iarg++]);
+      if (acc < 0.0 || acc > 1.0)
+        error->all(FLERR,"Illegal surf_collide mixed (diffuse) command");
+    } else if (strcmp(arg[iarg],"specular") == 0) {
+      sflag = 1;
+      iarg++;
+      while (1) {
+        isp = particle->find_species(arg[iarg]);
+        if (isp < 0) break;
+        stype[isp] = SPECULAR;
+        iarg++;
+      }
+      if (iarg < narg) { // need to check if any args left
+        if (strcmp(arg[iarg],"noslip") == 0) {
+          noslip_flag = 1;
+          iarg ++;
+        }
+      }
+    } else if (strcmp(arg[iarg],"adiabtic") == 0) {
+      aflag = 1;
+      iarg++;
+      while (1) {
+        isp = particle->find_species(arg[iarg]);
+        if (isp < 0) break;
+        stype[isp] = ADIABATIC;
+        iarg++;
+      }
     } else if (strcmp(arg[iarg],"translate") == 0) {
       if (iarg+4 > narg)
-        error->all(FLERR,"Illegal surf_collide diffuse command");
+        error->all(FLERR,"Illegal surf_collide mixed command");
       tflag = 1;
       vx = atof(arg[iarg+1]);
       vy = atof(arg[iarg+2]);
@@ -71,7 +109,7 @@ SurfCollideDiffuse::SurfCollideDiffuse(SPARTA *sparta, int narg, char **arg) :
       iarg += 4;
     } else if (strcmp(arg[iarg],"rotate") == 0) {
       if (iarg+7 > narg)
-        error->all(FLERR,"Illegal surf_collide diffuse command");
+        error->all(FLERR,"Illegal surf_collide mixed command");
       rflag = 1;
       px = atof(arg[iarg+1]);
       py = atof(arg[iarg+2]);
@@ -89,16 +127,20 @@ SurfCollideDiffuse::SurfCollideDiffuse(SPARTA *sparta, int narg, char **arg) :
           error->all(FLERR,
                      "Surf_collide diffuse rotation invalid for 2d axisymmetric");
       }
-
       iarg += 7;
-
-    } else error->all(FLERR,"Illegal surf_collide diffuse command");
+    } else error->all(FLERR,"Illegal surf_collide mixed command");
   }
 
-  if (tflag && rflag) error->all(FLERR,"Illegal surf_collide diffuse command");
+  // check all species have a surface collision model assigned
+
+  for (int i = 0; i < nspecies; i++)
+    if (stype[i] < 0) error->all(FLERR,"No surface model assigned to a species");
+
+  if (tflag && rflag) error->all(FLERR,"Illegal surf_collide mixed command");
   if (tflag || rflag) trflag = 1;
   else trflag = 0;
 
+  // for updating custom for diffuse walls
   vstream[0] = vstream[1] = vstream[2] = 0.0;
 
   // initialize RNG
@@ -110,19 +152,20 @@ SurfCollideDiffuse::SurfCollideDiffuse(SPARTA *sparta, int narg, char **arg) :
 
 /* ---------------------------------------------------------------------- */
 
-SurfCollideDiffuse::~SurfCollideDiffuse()
+SurfCollideMixed::~SurfCollideMixed()
 {
   if (copy) return;
 
+  memory->destroy(stype);
   delete random;
 }
 
 /* ---------------------------------------------------------------------- */
 
-void SurfCollideDiffuse::init()
+void SurfCollideMixed::init()
 {
   SurfCollide::init();
-  check_tsurf();
+  if (dflag) check_tsurf();
 }
 
 /* ----------------------------------------------------------------------
@@ -135,9 +178,11 @@ void SurfCollideDiffuse::init()
    return jp = new particle if created by chemistry
    return reaction = index of reaction (1 to N) that took place, 0 = no reaction
    resets particle(s) to post-collision outward velocity
+
+   can possible simplify this by directly calling collide from each type
 ------------------------------------------------------------------------- */
 
-Particle::OnePart *SurfCollideDiffuse::
+Particle::OnePart *SurfCollideMixed::
 collide(Particle::OnePart *&ip, double &,
         int isurf, double *norm, int isr, int &reaction)
 {
@@ -158,32 +203,53 @@ collide(Particle::OnePart *&ip, double &,
     if (reaction) surf->nreact_one++;
   }
 
-  // set temperature of isurf if VARSURF or CUSTOM
-
-  if (persurf_temperature) {
-    tsurf = t_persurf[isurf];
-    if (tsurf <= 0.0) error->one(FLERR,"Surf_collide tsurf <= 0.0");
-  }
-
-  // diffuse reflection for each particle
-  // only if SurfReact did not already reset velocities
-  // also both particles need to trigger any fixes
-  //   to update per-particle properties which depend on
-  //   temperature of the particle, e.g. fix vibmode and fix ambipolar
-
+  int isp;
   if (ip) {
-    if (!velreset) diffuse(ip,norm);
-    if (modify->n_update_custom) {
-      int i = ip - particle->particles;
-      modify->update_custom(i,tsurf,tsurf,tsurf,vstream);
-    }
+    isp = ip->ispecies;
+    // diffuse 
+    if (stype[isp] == DIFFUSE) {
+      // set temperature of isurf if VARSURF or CUSTOM
+      if (persurf_temperature) {
+        tsurf = t_persurf[isurf];
+        if (tsurf <= 0.0) error->one(FLERR,"Surf_collide tsurf <= 0.0");
+      }
+      if (!velreset) diffuse(ip, norm);
+      if (modify->n_update_custom) {
+        int i = ip - particle->particles;
+        modify->update_custom(i,tsurf,tsurf,tsurf,vstream);
+      }
+    // specular
+    } else if (stype[isp] == SPECULAR && !velreset) {
+      if (noslip_flag)  MathExtra::negate3(ip->v);
+      else  MathExtra::reflect3(ip->v,norm);
+    //adiabatic
+    } else if (stype[isp] == ADIABATIC && !velreset) {
+      scatter_isotropic(ip,norm);
+    } else error->all(FLERR,"Could not find surface collision model");
   }
+
   if (jp) {
-    if (!velreset) diffuse(jp,norm);
-    if (modify->n_update_custom) {
-      int j = jp - particle->particles;
-      modify->update_custom(j,tsurf,tsurf,tsurf,vstream);
-    }
+    isp = jp->ispecies;
+    // diffuse 
+    if (stype[isp] == DIFFUSE) {
+      // set temperature of isurf if VARSURF or CUSTOM
+      if (persurf_temperature) {
+        tsurf = t_persurf[isurf];
+        if (tsurf <= 0.0) error->one(FLERR,"Surf_collide tsurf <= 0.0");
+      }
+      if (!velreset) diffuse(jp, norm);
+      if (modify->n_update_custom) {
+        int i = jp - particle->particles;
+        modify->update_custom(i,tsurf,tsurf,tsurf,vstream);
+      }
+    // specular
+    } else if (stype[isp] == SPECULAR && !velreset) {
+      if (noslip_flag)  MathExtra::negate3(jp->v);
+      else  MathExtra::reflect3(jp->v,norm);
+    //adiabatic
+    } else if (stype[isp] == ADIABATIC && !velreset) {
+      scatter_isotropic(jp,norm);
+    } else error->all(FLERR,"Could not find surface collision model");
   }
 
   // call any fixes with a surf_react() method
@@ -206,29 +272,13 @@ collide(Particle::OnePart *&ip, double &,
 }
 
 /* ----------------------------------------------------------------------
-   diffusive particle collision with surface
-   p = particle with current x = collision pt, current v = incident v
-   norm = surface normal unit vector
-   resets particle(s) to post-collision outward velocity
+   taken from SurfCollideDiffuse (refer there)
 ------------------------------------------------------------------------- */
 
-void SurfCollideDiffuse::diffuse(Particle::OnePart *p, double *norm)
+void SurfCollideMixed::diffuse(Particle::OnePart *p, double *norm)
 {
-  // specular reflection
-  // reflect incident v around norm
-
   if (random->uniform() > acc) {
     MathExtra::reflect3(p->v,norm);
-
-  // diffuse reflection
-  // vrm = most probable speed of species, eqns (4.1) and (4.7)
-  // vperp = velocity component perpendicular to surface along norm, eqn (12.3)
-  // vtan12 = 2 velocity components tangential to surface
-  // tangent1 = component of particle v tangential to surface,
-  //   check if tangent1 = 0 (normal collision), set randomly
-  // tangent2 = norm x tangent1 = orthogonal tangential direction
-  // tangent12 are both unit vectors
-
   } else {
     double tangent1[3],tangent2[3];
     Particle::Species *species = particle->species;
@@ -260,9 +310,6 @@ void SurfCollideDiffuse::diffuse(Particle::OnePart *p, double *norm)
 
     MathExtra::norm3(tangent1);
     MathExtra::cross3(norm,tangent1,tangent2);
-
-    // add in translation or rotation vector if specified
-    // only keep portion of vector tangential to surface element
 
     if (trflag) {
       double vxdelta,vydelta,vzdelta;
@@ -299,15 +346,11 @@ void SurfCollideDiffuse::diffuse(Particle::OnePart *p, double *norm)
       v[1] = vperp*norm[1] + vtan1*tangent1[1] + vtan2*tangent2[1] + vydelta;
       v[2] = vperp*norm[2] + vtan1*tangent1[2] + vtan2*tangent2[2] + vzdelta;
 
-    // no translation or rotation
-
     } else {
       v[0] = vperp*norm[0] + vtan1*tangent1[0] + vtan2*tangent2[0];
       v[1] = vperp*norm[1] + vtan1*tangent1[1] + vtan2*tangent2[1];
       v[2] = vperp*norm[2] + vtan1*tangent1[2] + vtan2*tangent2[2];
     }
-
-    // initialize rot/vib energy
 
     p->erot = particle->erot(ispecies,tsurf,random);
     p->evib = particle->evib(ispecies,tsurf,random);
@@ -315,28 +358,86 @@ void SurfCollideDiffuse::diffuse(Particle::OnePart *p, double *norm)
 }
 
 /* ----------------------------------------------------------------------
-   wrapper on diffuse() method to perform collision for a single particle
-   pass in 2 coefficients to match command-line args for style diffuse
-   flags, coeffs can be NULL
-   called by SurfReactAdsorb
+   taken from SurfCollideAdiabatic (refer there)
 ------------------------------------------------------------------------- */
 
-void SurfCollideDiffuse::wrapper(Particle::OnePart *p, double *norm,
-                                 int *flags, double *coeffs)
+void SurfCollideMixed::scatter_isotropic(Particle::OnePart *p, double *norm)
 {
-  if (coeffs) {
-    tsurf = coeffs[0];
-    acc = coeffs[1];
+  double *v = p->v;
+  double dot = MathExtra::dot3(v,norm);
+
+  // tangent1/2 = surface tangential unit vectors
+
+  double tangent1[3], tangent2[3];
+  tangent1[0] = v[0] - dot*norm[0];
+  tangent1[1] = v[1] - dot*norm[1];
+  tangent1[2] = v[2] - dot*norm[2];
+
+  // if mag(tangent1) == 0 mean normal collision, in that case choose
+  // a random tangential vector
+  if (MathExtra::lensq3(tangent1) == 0.0) {
+    tangent2[0] = random->uniform();
+    tangent2[1] = random->uniform();
+    tangent2[2] = random->uniform();
+    MathExtra::cross3(norm,tangent2,tangent1);
   }
 
-  diffuse(p,norm);
+  // normalize tangent1
+  MathExtra::norm3(tangent1);
+  // compute tangent2 as norm x tangent1, so that tangent1 and tangent2 are
+  // orthogonal
+  MathExtra::cross3(norm,tangent1,tangent2);
+
+  // isotropic scattering
+  // vmag = magnitude of incidient particle velocity vector
+  // vperp = velocity component perpendicular to surface along norm (cy)
+  // vtan1/2 = 2 remaining velocity components tangential to surface
+
+  double vmag = MathExtra::len3(v);
+
+  double theta = MY_2PI*random->uniform();
+  double f_phi = random->uniform();
+  double sqrt_f_phi = sqrt(f_phi);
+
+  double vperp = vmag * sqrt(1.0 - f_phi);
+  double vtan1 = vmag * sqrt_f_phi * sin(theta);
+  double vtan2 = vmag * sqrt_f_phi * cos(theta);
+
+  // update particle velocity
+  v[0] = vperp*norm[0] + vtan1*tangent1[0] + vtan2*tangent2[0];
+  v[1] = vperp*norm[1] + vtan1*tangent1[1] + vtan2*tangent2[1];
+  v[2] = vperp*norm[2] + vtan1*tangent1[2] + vtan2*tangent2[2];
+
+  // p->erot and p->evib stay identical
+}
+
+/* ----------------------------------------------------------------------
+   combine wrappers from SurfCollideDiffuse and SurfCollideSpecular
+------------------------------------------------------------------------- */
+
+void SurfCollideMixed::wrapper(Particle::OnePart *p, double *norm,
+                                 int *flags, double *coeffs)
+{
+  int isp = p->ispecies;
+  if (stype[isp] == DIFFUSE) {
+    if (coeffs) {
+      tsurf = coeffs[0];
+      acc = coeffs[1];
+    }
+    diffuse(p,norm);
+  } else if (stype[isp] == SPECULAR) {
+    if (flags) noslip_flag = flags[0];
+    MathExtra::reflect3(p->v,norm);
+  } else if (stype[isp] == ADIABATIC) {
+    scatter_isotropic(p,norm);
+  }
 }
 
 /* ----------------------------------------------------------------------
    return flags and coeffs for this SurfCollide instance to caller
 ------------------------------------------------------------------------- */
 
-void SurfCollideDiffuse::flags_and_coeffs(int *flags, double *coeffs)
+void SurfCollideMixed::flags_and_coeffs(int *flags, double *coeffs)
 {
   if (tmode != NUMERIC)
     error->all(FLERR,"Surf_collide diffuse with non-numeric Tsurf "
@@ -344,4 +445,5 @@ void SurfCollideDiffuse::flags_and_coeffs(int *flags, double *coeffs)
 
   coeffs[0] = tsurf;
   coeffs[1] = acc;
+  flags[0] = noslip_flag;
 }
