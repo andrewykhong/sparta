@@ -166,6 +166,7 @@ void ComputeSonineGrid::compute_per_grid()
   double mass,norm,csq,value;
   double *v,*vec;
   double vthermal[3];
+  double pweight;
 
   // compute COM velocity on this timestep for each cell and group
 
@@ -185,7 +186,10 @@ void ComputeSonineGrid::compute_per_grid()
     icell = particles[i].icell;
     if (!(cinfo[icell].mask & groupbit)) continue;
 
-    mass = species[ispecies].mass;
+    if (particle->specwtflag) pweight = species[ispecies].specwt;
+    else pweight = 1.0;
+
+    mass = species[ispecies].mass*pweight;
     v = particles[i].v;
 
     vcom[icell][igroup][0] += mass * v[0];
@@ -224,7 +228,10 @@ void ComputeSonineGrid::compute_per_grid()
     vec = tally[icell];
     k = igroup*npergroup;
 
-    mass = species[ispecies].mass;
+    if (particle->specwtflag) pweight = species[ispecies].specwt;
+    else pweight = 1.0;
+
+    mass = species[ispecies].mass*pweight;
     vec[k++] += mass;
 
     v = particles[i].v;

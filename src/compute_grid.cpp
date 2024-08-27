@@ -225,6 +225,7 @@ void ComputeGrid::compute_per_grid()
   int i,j,k,m,ispecies,igroup,icell;
   double mass;
   double *v,*vec;
+  double pweight;
 
   // zero all accumulators - could do this with memset()
 
@@ -244,12 +245,15 @@ void ComputeGrid::compute_per_grid()
     icell = particles[i].icell;
     if (!(cinfo[icell].mask & groupbit)) continue;
 
-    mass = species[ispecies].mass;
+    if (particle->specwtflag) pweight = species[ispecies].specwt;
+    else pweight = 1.0;
+
+    mass = species[ispecies].mass*pweight;
     v = particles[i].v;
 
     vec = tally[icell];
     if (cellmass) vec[cellmass] += mass;
-    if (cellcount) vec[cellcount] += 1.0;
+    if (cellcount) vec[cellcount] += pweight;
 
     // loop has all possible values particle needs to accumulate
     // subset defined by user values are indexed by accumulate vector
@@ -259,7 +263,7 @@ void ComputeGrid::compute_per_grid()
     for (m = 0; m < npergroup; m++) {
       switch (unique[m]) {
       case COUNT:
-        vec[k++] += 1.0;
+        vec[k++] += pweight;
         break;
       case MASSSUM:
         vec[k++] += mass;
@@ -286,16 +290,16 @@ void ComputeGrid::compute_per_grid()
         vec[k++] += mass * (v[0]*v[0]+v[1]*v[1]+v[2]*v[2]);
         break;
       case ENGROT:
-        vec[k++] += particles[i].erot;
+        vec[k++] += particles[i].erot*pweight;
         break;
       case ENGVIB:
-        vec[k++] += particles[i].evib;
+        vec[k++] += particles[i].evib*pweight;
         break;
       case DOFROT:
-        vec[k++] += species[ispecies].rotdof;
+        vec[k++] += species[ispecies].rotdof*pweight;
         break;
       case DOFVIB:
-        vec[k++] += species[ispecies].vibdof;
+        vec[k++] += species[ispecies].vibdof*pweight;
         break;
       }
     }

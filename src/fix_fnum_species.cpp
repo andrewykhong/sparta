@@ -33,11 +33,14 @@ FixFnumSpecies::FixFnumSpecies(SPARTA *sparta, int narg, char **arg) :
 {
   if (particle->exist)
     error->all(FLERR,"Must call fix fnum/species before any particles exist");
+  if (grid->cellweightflag)
+    error->all(FLERR,"Fix fnum/species not currently supported for axi-symmetric");
 
   if (narg < 4) error->all(FLERR,"Not enough arguments for fix fnum/species command");
   
   // initialize array for storing weights of each species
 
+  particle->specwtflag = 1;
   int nspecies = particle->nspecies;
   for (int i = 0; i < nspecies; i++)
     particle->species[i].specwt = 1.0;

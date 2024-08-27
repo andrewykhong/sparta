@@ -128,6 +128,7 @@ void ComputeThermalGrid::compute_per_grid()
   int i,j,k,ispecies,igroup,icell;
   double mass;
   double *v,*vec;
+  double pweight;
 
   // zero all accumulators - could do this with memset()
 
@@ -144,7 +145,10 @@ void ComputeThermalGrid::compute_per_grid()
     icell = particles[i].icell;
     if (!(cinfo[icell].mask & groupbit)) continue;
 
-    mass = species[ispecies].mass;
+    if (particle->specwtflag) pweight = species[ispecies].specwt;
+    else pweight = 1.0;
+
+    mass = species[ispecies].mass*pweight;
     v = particles[i].v;
 
     // 6 tallies per particle: N, Mass, mVx, mVy, mVz, mV^2
@@ -152,7 +156,7 @@ void ComputeThermalGrid::compute_per_grid()
     vec = tally[icell];
     k = igroup*npergroup;
 
-    vec[k++] += 1.0;
+    vec[k++] += 1.0*pweight;
     vec[k++] += mass;
     vec[k++] += mass*v[0];
     vec[k++] += mass*v[1];
