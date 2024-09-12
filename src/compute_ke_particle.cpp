@@ -80,9 +80,13 @@ void ComputeKEParticle::compute_per_particle()
   double mass;
   double *v;
   double mvv2e = update->mvv2e;
+  double pweight;
 
   for (int i = 0; i < nlocal; i++) {
-    mass = species[particles[i].ispecies].mass;
+    if (particle->specwtflag) pweight = species[particles[i].ispecies].specwt;
+    else pweight = 1.0;
+
+    mass = species[particles[i].ispecies].mass*pweight;
     v = particles[i].v;
     ke[i] = 0.5 * mvv2e * mass * (v[0]*v[0] + v[1]*v[1] + v[2]*v[2]);
   }

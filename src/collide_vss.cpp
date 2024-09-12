@@ -14,6 +14,7 @@
 
 #include "math.h"
 #include "string.h"
+#include "ctype.h"
 #include "stdlib.h"
 #include "collide_vss.h"
 #include "grid.h"
@@ -863,7 +864,8 @@ void CollideVSS::read_param_file(char *fname)
 
     // if we don't match a species with second word, but it's not a number,
     // skip the line (it involves a species we aren't using)
-    if ( jsp < 0 &&  !(atof(words[1]) > 0) ) continue;
+    // if ( jsp < 0 && !(atof(words[1]) > 0) ) continue;
+    if ( jsp < 0 && !(isdigit(words[1][0])) ) continue;
 
     if (jsp < 0 ) {
       params[isp][isp].diam = atof(words[1]);
@@ -878,7 +880,7 @@ void CollideVSS::read_param_file(char *fname)
         params[isp][isp].vibc1 = atof(words[7]);
         params[isp][isp].vibc2 = atof(words[8]);
       }
-    }else {
+    } else {
       if (nwords < REQWORDS+1)  // one extra word in cross-species lines
         error->one(FLERR,"Incorrect line format in VSS parameter file");
       params[isp][jsp].diam = params[jsp][isp].diam = atof(words[2]);

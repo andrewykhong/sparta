@@ -32,6 +32,8 @@
 #include "memory.h"
 #include "error.h"
 
+#include "fix_solid.h"
+
 using namespace SPARTA_NS;
 using namespace MathConst;
 
@@ -90,6 +92,8 @@ void CreateParticles::command(int narg, char **arg)
   cutflag = 1;
   int globalflag = 0;
   twopass = 0;
+  weight = 0;
+  ifix = -1;
   region = NULL;
   speciesflag = densflag = velflag = tempflag = 0;
   sstr = sxstr = systr = szstr = NULL;
@@ -475,13 +479,36 @@ void CreateParticles::create_local()
     insertvolme += cinfo[icell].volume / cinfo[icell].weight;
   }
 
-  // calculate total Np if not set explicitly
-  // based on total flowvol and mixture density
-
-  if (np == 0) {
+  /*if (np == 0) {
     double flowvol;
     MPI_Allreduce(&flowvolme,&flowvol,1,MPI_DOUBLE,MPI_SUM,world);
+    
     np = particle->mixture[imix]->nrho * flowvol / update->fnum;
+  }*/
+
+  // overwrite np if total Np not set explicitly
+
+  if (np == 0) {
+
+    // total number of real particles
+
+    double flowvol;
+    MPI_Allreduce(&flowvolme,&flowvol,1,MPI_DOUBLE,MPI_SUM,world);
+    Mixture *mix = particle->mixture[imix];
+    double N = mix->nrho*flowvol/update->fnum;
+
+    // calculate number of particles per-species based on per-species weight
+
+    int ispecies;
+    int nspecies = particle->mixture[imix]->nspecies;
+    double double_np = 0.0;
+    for (int i = 0; i < nspecies; i++) {
+      ispecies = mix->species[i];
+      double_np += N*mix->fraction[i]/particle->species[ispecies].specwt;
+    }
+
+    np = static_cast<int> (double_np);
+
   }
 
   // gather cummulative insertion volumes across all procs
@@ -530,14 +557,13 @@ void CreateParticles::create_local()
   // particle velocity = stream velocity + thermal velocity
 
   int *species = particle->mixture[imix]->species;
-  double *cummulative = particle->mixture[imix]->cummulative;
+  double *cummulative = particle->mixture[imix]->cummulative_wt;
   double *vstream = particle->mixture[imix]->vstream;
   double *vscale = particle->mixture[imix]->vscale;
   int nspecies = particle->mixture[imix]->nspecies;
   double temp_thermal = particle->mixture[imix]->temp_thermal;
   double temp_rot = particle->mixture[imix]->temp_rot;
   double temp_vib = particle->mixture[imix]->temp_vib;
-
   int npercell,ncreate,isp,ispecies,id,pflag,subcell;
   double x[3],v[3],xcell[3],vstream_variable[3];
   double ntarget,scale,rn,vn,vr,theta1,theta2,erot,evib;
@@ -724,13 +750,36 @@ void CreateParticles::create_local_twopass()
     insertvolme += cinfo[icell].volume / cinfo[icell].weight;
   }
 
-  // calculate total Np if not set explicitly
-  // based on total flowvol and mixture density
-
-  if (np == 0) {
+  /*if (np == 0) {
     double flowvol;
     MPI_Allreduce(&flowvolme,&flowvol,1,MPI_DOUBLE,MPI_SUM,world);
+    
     np = particle->mixture[imix]->nrho * flowvol / update->fnum;
+  }*/
+
+  // overwrite np if total Np not set explicitly
+
+  if (np == 0) {
+
+    // total number of real particles
+
+    double flowvol;
+    MPI_Allreduce(&flowvolme,&flowvol,1,MPI_DOUBLE,MPI_SUM,world);
+    Mixture *mix = particle->mixture[imix];
+    double N = mix->nrho*flowvol/update->fnum;
+
+    // calculate number of particles per-species based on per-species weight
+
+    int ispecies;
+    int nspecies = particle->mixture[imix]->nspecies;
+    double double_np = 0.0;
+    for (int i = 0; i < nspecies; i++) {
+      ispecies = mix->species[i];
+      double_np += N*mix->fraction[i]/particle->species[ispecies].specwt;
+    }
+
+    np = static_cast<int> (double_np);
+
   }
 
   // gather cummulative insertion volumes across all procs
@@ -778,14 +827,13 @@ void CreateParticles::create_local_twopass()
   // particle velocity = stream velocity + thermal velocity
 
   int *species = particle->mixture[imix]->species;
-  double *cummulative = particle->mixture[imix]->cummulative;
+  double *cummulative = particle->mixture[imix]->cummulative_wt;
   double *vstream = particle->mixture[imix]->vstream;
   double *vscale = particle->mixture[imix]->vscale;
   int nspecies = particle->mixture[imix]->nspecies;
   double temp_thermal = particle->mixture[imix]->temp_thermal;
   double temp_rot = particle->mixture[imix]->temp_rot;
   double temp_vib = particle->mixture[imix]->temp_vib;
-
   int npercell,ncreate,isp,ispecies,id,pflag,subcell;
   double x[3],v[3],xcell[3],vstream_variable[3];
   double ntarget,scale,rn,vn,vr,theta1,theta2,erot,evib;

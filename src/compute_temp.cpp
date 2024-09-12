@@ -44,11 +44,15 @@ double ComputeTemp::compute_scalar()
 
   double *v;
   double t = 0.0;
+  double pweight;
 
   for (int i = 0; i < nlocal; i++) {
+    if (particle->specwtflag) pweight = species[particles[i].ispecies].specwt;
+    else pweight = 1.0;
+
     v = particles[i].v;
     t += (v[0]*v[0] + v[1]*v[1] + v[2]*v[2]) *
-      species[particles[i].ispecies].mass;
+      species[particles[i].ispecies].mass * pweight;
   }
 
   MPI_Allreduce(&t,&scalar,1,MPI_DOUBLE,MPI_SUM,world);

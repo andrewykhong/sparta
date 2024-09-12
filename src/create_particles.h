@@ -35,6 +35,7 @@ class CreateParticles : protected Pointers {
 
  protected:
   int imix,single,cutflag,mspecies,twopass;
+  int weight,ifix; // for weight dependent species
   bigint np;
   double xp,yp,zp,vx,vy,vz;
   class Region *region;

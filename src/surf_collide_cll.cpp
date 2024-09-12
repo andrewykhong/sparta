@@ -382,7 +382,7 @@ void SurfCollideCLL::cll(Particle::OnePart *p, double *norm)
 
     p->erot = update->boltz * tsurf *
       (r_rot*r_rot + erot_mag*erot_mag + 2*r_rot*erot_mag*cos_theta_rot);
-    }
+  }
 
   // vibrational component
   // NOTE: check all references to species[]->vibtmp
