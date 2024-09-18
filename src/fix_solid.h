@@ -37,6 +37,8 @@ class FixSolid : public Fix {
   virtual void update_custom(int, double, double, double, double *);
   void end_of_step();
 
+  double get_particle_property(int, int);
+
  protected:
 
   int dim; // dimension (2 or 3)
@@ -56,7 +58,8 @@ class FixSolid : public Fix {
 
   // for now, all solid particles have same initial properties
 
-  double Tp0, Rp0, in_csp; // initial temperature and specific heat
+  double rhop0, Rp0, mp0; // initial particle density, radius, and mass
+  double Tp0, in_csp; // initial temperature and specific heat
   double uxp0, uyp0, uzp0; // initial velocity of particle (for testing)
 
   // for approximating mass loss due to heating
@@ -80,7 +83,7 @@ class FixSolid : public Fix {
   void force_burt();
   void force_green();
   void force_empirical();
-  void move_euler();
+  void update_particle();
   void move_langevin();
   void reset_velocities(int);
   double update_mass(double, double);

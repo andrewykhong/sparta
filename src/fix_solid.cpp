@@ -34,6 +34,10 @@ enum{INT,DOUBLE};                      // several files
 enum{NONE,EULER,LANGEVIN};                  // type of solid particle move
 enum{GREEN,BURT,EMPIRICAL};            // type of solid particle force
 
+// for compute_solid_grid
+
+enum{SIZE,MASS,TEMP,FORCEX,FORCEY,FORCEZ,HEAT};
+
 #define DELTADELETE 1024
 
 /* ---------------------------------------------------------------------- */
@@ -51,14 +55,15 @@ FixSolid::FixSolid(SPARTA *sparta, int narg, char **arg) :
   id = NULL; // solid particle list
   dellist = NULL; // particles to delete
 
-  // for storing average force and heat flux in each cell
+  // for storing per-grid solid-particle properties
   per_grid_flag = 1;
   per_grid_freq = 1;
-  size_per_grid_cols = 4;
+  // average force (3), heat flux, and particle params (3)
+  size_per_grid_cols = 7;
   nglocal = 0;
   array_grid = NULL;
 
-  if (narg < 7) error->all(FLERR,"Not enough arguments for fix solid command");
+  if (narg < 9) error->all(FLERR,"Not enough arguments for fix solid command");
 
   solid_species = particle->find_species(arg[2]);
   if (solid_species < 0) error->all(FLERR,"Fix solid drag species does not exist");
@@ -71,8 +76,11 @@ FixSolid::FixSolid(SPARTA *sparta, int narg, char **arg) :
   // initial solid particle temperature and specific heat
 
   Rp0 = atof(arg[5]);
-  Tp0 = atof(arg[6]);
-  in_csp = atof(arg[7]);
+  rhop0 = atof(arg[6]);
+  if (dim == 2) mp0 = 3.141598*Rp0*Rp0*rhop0;
+  else mp0 = 4./3.*3.14159*pow(Rp0,3.0)*rhop0;
+  Tp0 = atof(arg[7]);
+  in_csp = atof(arg[8]);
 
   // optional args
 
@@ -82,7 +90,7 @@ FixSolid::FixSolid(SPARTA *sparta, int narg, char **arg) :
   move_type = EULER;
   force_type = GREEN;
   uxp0 = uyp0 = uzp0 = 0.0;
-  int iarg = 8;
+  int iarg = 9;
   while (iarg < narg) {
     if (strcmp(arg[iarg],"reduce") == 0) {
       if (iarg+2 > narg) error->all(FLERR,"Invalid fix solid command");
@@ -205,7 +213,7 @@ void FixSolid::update_custom(int index, double,
 
   solid_array[index][0] = 1.0; // existing particles are 1.0 (maybe not needed)
   solid_array[index][1] = Rp0; // radius
-  solid_array[index][2] = particle->species[solid_species].mass; // mass
+  solid_array[index][2] = mp0; // mass
   solid_array[index][3] = Tp0; // temperature
   solid_array[index][4] = in_csp; // specific heat
 
@@ -232,17 +240,17 @@ void FixSolid::end_of_step()
   // force model type
 
   if (force_type == GREEN) force_green();
-  else if (force_type == BURT) force_burt();
-  else if (force_type == EMPIRICAL) force_empirical();
+  //else if (force_type == BURT) force_burt();
+  //else if (force_type == EMPIRICAL) force_empirical();
 
   if (update->ntimestep % nevery) return;
 
   // update particles velocitis (and position if langevin)
 
   ndelete = 0;
-  if (move_type == LANGEVIN) move_langevin();
-  else if (move_type == EULER) move_euler();
-  else if (move_type == NONE) reset_velocities(0); // zero out velocities
+  if (move_type == EULER) update_particle();
+  //else if (move_type == LANGEVIN) move_langevin();
+  //else if (move_type == NONE) reset_velocities(0); // zero out velocities
 
   // delete solid particles with no mass
 
@@ -269,7 +277,7 @@ void FixSolid::force_green()
   double **solid_force = particle->edarray[particle->ewhich[index_solid_force]];
   double **solid_bulk  = particle->edarray[particle->ewhich[index_solid_bulk]];
 
-  int icell,ip,is; // dummy indices
+  int i,icell,ip,is; // dummy indices
   int ispecies, sid; // species of particle i; particle indices of solid particles
   int np, nsolid; // number of total simulators; number of solid simulators
   double Rp,mp,Tp,csp; // particle radius, mass, temperature, and specific heat
@@ -284,10 +292,6 @@ void FixSolid::force_green()
   double prefactor; // prefactor
 
   for (icell = 0; icell < nglocal; icell++) {
-    array_grid[icell][0] = 0.0;
-    array_grid[icell][1] = 0.0;
-    array_grid[icell][2] = 0.0;
-    array_grid[icell][3] = 0.0;
 
     np = cinfo[icell].count;
     if (np <= 1) continue;
@@ -410,13 +414,6 @@ void FixSolid::force_green()
       solid_bulk[sid][2] = (solid_bulk[sid][2]*nsample+um[2])/(nsample+1.0);
       solid_bulk[sid][3] = (solid_bulk[sid][3]*nsample+T)/(nsample+1.0);
 
-      // update per-grid forces for outputting
-
-      array_grid[icell][0] += Fg[0]/nsolid;
-      array_grid[icell][1] += Fg[1]/nsolid;
-      array_grid[icell][2] += Fg[2]/nsolid;
-      array_grid[icell][3] += Qg/nsolid;
-
     } // end solid loop
   } // end cells
 
@@ -426,29 +423,11 @@ void FixSolid::force_green()
 }
 
 /* ----------------------------------------------------------------------
-   Not implemented yet
----------------------------------------------------------------------- */
-
-void FixSolid::force_empirical()
-{
-  return;
-}
-
-/* ----------------------------------------------------------------------
-   Not implemented yet
----------------------------------------------------------------------- */
-
-void FixSolid::force_burt()
-{
-  return;
-}
-
-/* ----------------------------------------------------------------------
    Update velocities and positions using simple Euler scheme
    (no Brownian motion)
 ---------------------------------------------------------------------- */
 
-void FixSolid::move_euler()
+void FixSolid::update_particle()
 {
   // grab various particle and grid quantities
 
@@ -473,9 +452,18 @@ void FixSolid::move_euler()
   double Rp,mp,Tp,csp;
   double Q,mp_loss,rho,new_vol;
 
+  int nsolid;
+
   for (icell = 0; icell < nglocal; icell++) {
+
+    // reset array_grid (for output)
+    for (i = 0; i < size_per_grid_cols; i++)
+      array_grid[icell][i] = 0.0;
+
     np = cinfo[icell].count;
     if (np <= 0) continue;
+
+    nsolid = 0;
 
     // update only solid particles
 
@@ -486,57 +474,43 @@ void FixSolid::move_euler()
         mp = solid_array[ip][2];
         Tp = solid_array[ip][3];
         csp = solid_array[ip][4];
-        Q = solid_force[ip][3];
 
         // velocities
         for (int d = 0; d < dim; d++)
           particles[ip].v[d] = particles[ip].v[d] + solid_force[ip][d]*update->dt;
         
         // temperature
-        Tp = Tp + Q*update->dt/csp/mp;
+        Tp = Tp + solid_force[ip][3]*update->dt/csp/mp;
+        solid_array[ip][3] = Tp;
 
-        // update particle radii
-        if (reduce_size_flag && solid_array[ip][3] > Tvap) {
+        // update radius and mass (TODO: add later)
 
-          // particle density
-          rho = mp/(4.0/3.0*MY_PI*Rp*Rp*Rp);
+        // update per-grid forces for outputting
 
-          // solid temp plateaus as is sublimates
-          // need to add a function to grab Tvap from phase diag.
-          solid_array[ip][3] = Tvap;
-          
-          Q /= (4.0*Rp*Rp*MY_PI); // normalize by surface area
+        array_grid[icell][0] += Rp;
+        array_grid[icell][1] += mp;
+        array_grid[icell][2] += Tp;
+        array_grid[icell][3] += solid_force[ip][0];
+        array_grid[icell][4] += solid_force[ip][1];
+        array_grid[icell][5] += solid_force[ip][2];
+        array_grid[icell][6] += solid_force[ip][3];
+        nsolid++;
 
-          // hvap = specific enthalpy of vapor
-          // hsolid = specific enthalpy of solid
-          // if high thermal conductivity, hvap-hsolid = hsub
-          // ... where hsub is the specific enthalpy of sublimation
-          mp_loss = Q/(hvap-hsolid)*update->dt*nevery;
-
-          // ignore newly generated particles due to sublimation
-
-          // updated particle radius
-          if (mp > mp_loss) {
-            new_vol = (mp - mp_loss) / rho;
-            solid_array[ip][1] = pow(0.75*new_vol/MY_PI,1./3.);
-          } else {
-            solid_array[ip][1] = 0.0;
-
-            // delete particles with no mass
-            if (ndelete == maxdelete) {
-              maxdelete += DELTADELETE;
-              memory->grow(dellist,maxdelete,"solid:dellist");
-            }
-            dellist[ndelete++] = ip;
-          }
-        }
-      }
+      } // end check species
 
       // reset forces and heat fluxes
       for (i = 0; i < 4; i++) solid_force[ip][i] = 0.0;
-
       ip = next[ip];
-    }
+
+    } // end particle
+
+    // update per-grid forces for outputting
+    if (nsolid > 0)
+      for (i = 0; i < 7; i++)
+        array_grid[icell][i] /= nsolid;
+    else 
+      for (i = 0; i < 7; i++)
+        array_grid[icell][i] = 0.0;
 
   } // end cells
 
@@ -721,6 +695,33 @@ void FixSolid::reset_velocities(int reset_flag)
   } // end cells
 }
 
+/* ----------------------------------------------------------------------
+   Get solid particle propery
+---------------------------------------------------------------------- */
+
+double FixSolid::get_particle_property(int which, int ip)
+{
+  // grab various particle and grid quantities
+
+  Particle::OnePart *particles = particle->particles;
+
+  if (particles[ip].ispecies != solid_species) return -1;
+
+  // solid particle related vectors
+
+  double **solid_array = particle->edarray[particle->ewhich[index_solid_params]];
+  double **solid_force = particle->edarray[particle->ewhich[index_solid_force]];
+
+  if (which == SIZE)        return solid_array[ip][1];
+  else if (which == MASS)   return solid_array[ip][2];
+  else if (which == TEMP)   return solid_array[ip][3];
+  else if (which == FORCEX) return solid_force[ip][0];
+  else if (which == FORCEY) return solid_force[ip][1];
+  else if (which == FORCEZ) return solid_force[ip][2];
+  else if (which == HEAT)   return solid_force[ip][3];
+  return -1;
+
+}
 
 /* ----------------------------------------------------------------------
    gaussian RN based on Box Mueller transform
