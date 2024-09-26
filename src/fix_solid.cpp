@@ -26,17 +26,20 @@
 #include "math_const.h"
 #include "random_mars.h"
 #include "random_knuth.h"
+#include "compute.h"
+#include "fix.h"
 
 using namespace SPARTA_NS;
 using namespace MathConst;
 
 enum{INT,DOUBLE};                      // several files
-enum{NONE,EULER,LANGEVIN};                  // type of solid particle move
+enum{NOMOVE,EULER,LANGEVIN};                  // type of solid particle move
 enum{GREEN,BURT,EMPIRICAL};            // type of solid particle force
 
 // for compute_solid_grid
 
 enum{SIZE,MASS,TEMP,FORCEX,FORCEY,FORCEZ,HEAT};
+enum{PZERO,COMPUTE,FIX};
 
 #define DELTADELETE 1024
 
@@ -89,19 +92,94 @@ FixSolid::FixSolid(SPARTA *sparta, int narg, char **arg) :
   reduce_size_flag = 0; // reduce size of particle radii over time due to heat
   move_type = EULER;
   force_type = GREEN;
+  pwhich = PZERO;
   uxp0 = uyp0 = uzp0 = 0.0;
   int iarg = 9;
   while (iarg < narg) {
     if (strcmp(arg[iarg],"reduce") == 0) {
-      if (iarg+2 > narg) error->all(FLERR,"Invalid fix solid command");
-      if (strcmp(arg[iarg+1],"yes") == 0) reduce_size_flag = 1;
-      else if (strcmp(arg[iarg+1],"no") == 0) reduce_size_flag = 0;
-      else error->all(FLERR,"Invalid fix solid command");
-      iarg += 2;
+      if (iarg+3 > narg) error->all(FLERR,"Invalid fix solid command");
+      reduce_size_flag = 1;
+
+      // grab idsource from fix or compute (character between '[' and ']')
+      int n = strlen(arg[iarg+1]);
+      char *suffix = new char[n];
+      strcpy(suffix,&arg[iarg+1][2]);
+
+      // check if there the fix/compute points to certain index
+      int argindex = 0;
+      char *ptr = strchr(suffix,'[');
+      if (ptr) {
+        if (suffix[strlen(suffix)-1] != ']')
+          error->all(FLERR,"Illegal fix ablate command");
+        argindex = atoi(ptr+1);
+        *ptr = '\0';
+      }
+
+      n = strlen(suffix) + 1;
+      char *idsource = new char[n];
+      strcpy(idsource,suffix);
+      delete [] suffix;
+
+      // find compute and check if it is valid
+      if(strncmp(arg[iarg+1],"c_",2 == 0)) {
+        pwhich = COMPUTE;
+
+        ifc = modify->find_compute(idsource);
+        if (ifc < 0) // does compute exist?
+          error->all(FLERR,"Compute or fix ID for fix solid does not exist");
+        // does compute have per-grid values?
+        if (modify->compute[ifc]->per_grid_flag == 0)
+          error->all(FLERR,
+                     "Fix solid compute does not calculate per-grid values");
+        // if compute does not reference certain index, is it a 1xN vector?
+        if (argindex == 0 &&
+            modify->compute[ifc]->size_per_grid_cols != 0)
+          error->all(FLERR,"Fix solid compute does not "
+                     "calculate per-grid vector");
+        // if compute index specified, is there at least one value per grid?
+        if (argindex && modify->compute[ifc]->size_per_grid_cols == 0)
+          error->all(FLERR,"Fix solid compute does not "
+                     "calculate per-grid array");
+        // if compute index specified, is index within range?
+        if (argindex && argindex > modify->compute[ifc]->size_per_grid_cols)
+          error->all(FLERR,"Fix solid compute array is accessed out-of-range");
+
+      // find fix and check if it is valid
+      } else if (strncmp(arg[iarg+1],"f_",2 == 0)) {
+        pwhich = FIX;
+
+        ifc = modify->find_fix(idsource);
+        if (ifc < 0)
+          error->all(FLERR,"Fix ID for fix solid does not exist");
+        if (modify->fix[ifc]->per_grid_flag == 0)
+          error->all(FLERR,"Fix solid fix does not calculate per-grid values");
+        if (argindex == 0 && modify->fix[ifc]->size_per_grid_cols != 0)
+          error->all(FLERR,
+                     "Fix solid fix does not calculate per-grid vector");
+        if (argindex && modify->fix[ifc]->size_per_grid_cols == 0)
+          error->all(FLERR,
+                     "Fix solid fix does not calculate per-grid array");
+        if (argindex && argindex > modify->fix[ifc]->size_per_grid_cols)
+          error->all(FLERR,"Fix solid fix array is accessed out-of-range");
+        // are intervals for fix and fix solid compatible?
+        if (nevery % modify->fix[ifc]->per_grid_freq)
+          error->all(FLERR,
+                     "Fix for fix solid not computed at compatible time");
+
+      } else pwhich = PZERO;
+
+      iarg += 3;
     } else if (strcmp(arg[iarg],"nevery") == 0) { 
       if (iarg+2 > narg) error->all(FLERR,"Invalid fix solid command");
       nevery = atoi(arg[iarg+1]);
       if (nevery <= 0) error->all(FLERR,"Nevery must be greater than zero");
+
+      // check if nevery compatible with pre-defined fixes
+      if (pwhich == FIX)
+        if (nevery % modify->fix[ifc]->per_grid_freq)
+          error->all(FLERR,
+                     "Fix solid nevery not compatible with freq of pre-defined fix");
+
       iarg += 2;
     } else if (strcmp(arg[iarg],"brownian") == 0) {
       if (iarg+2 > narg) error->all(FLERR,"Invalid fix solid command");
@@ -111,7 +189,7 @@ FixSolid::FixSolid(SPARTA *sparta, int narg, char **arg) :
       iarg += 2;
     } else if (strcmp(arg[iarg],"nomove") == 0) {
       if (iarg+4 > narg) error->all(FLERR,"Invalid fix solid command");
-      move_type = NONE;
+      move_type = NOMOVE;
       uxp0 = atof(arg[iarg+1]);
       uyp0 = atof(arg[iarg+2]);
       uzp0 = atof(arg[iarg+3]);
@@ -142,7 +220,7 @@ FixSolid::FixSolid(SPARTA *sparta, int narg, char **arg) :
 
   index_solid_params = particle->add_custom((char *) "solid_params",DOUBLE,5);
   index_solid_force = particle->add_custom((char *) "solid_force",DOUBLE,4);
-  index_solid_bulk = particle->add_custom((char *) "solid_bulk",DOUBLE,4);
+  index_solid_bulk = particle->add_custom((char *) "solid_bulk",DOUBLE,5);
 
   random = new RanKnuth(update->ranmaster->uniform());
   double seed = update->ranmaster->uniform();
@@ -235,7 +313,7 @@ void FixSolid::end_of_step()
   if (!particle->sorted) particle->sort();
   reallocate(); // for outputting average force in each grid
 
-  if (move_type == NONE) reset_velocities(1);
+  if (move_type == NOMOVE) reset_velocities(1);
 
   // force model type
 
@@ -250,7 +328,7 @@ void FixSolid::end_of_step()
   ndelete = 0;
   if (move_type == EULER) update_particle();
   //else if (move_type == LANGEVIN) move_langevin();
-  //else if (move_type == NONE) reset_velocities(0); // zero out velocities
+  else if (move_type == NOMOVE) reset_velocities(0); // zero out velocities
 
   // delete solid particles with no mass
 
@@ -484,6 +562,41 @@ void FixSolid::update_particle()
         solid_array[ip][3] = Tp;
 
         // update radius and mass (TODO: add later)
+
+        if (reduce_size_flag) {
+
+          // grab pressure in cell
+          double p; // pressure
+          if (pwhich == PZERO) p = 0;
+          //else if (pwhich == COMPUTE)
+
+          // calcaulte saturatino temperautre (Fanale and Salvail 1984)
+          double psat = (3.56e12) * exp(-(6147.667/Tp));
+
+          // Hertz Knudsen Equation for flux of sulbiming molecules
+
+          // correction coefficients essentially
+          double beta = 1.0;
+          double alpha = 0.83; // rec from Gadsden 1998 and Winkler 2012 
+          double m_h2o = 1.0; // TODO: replace with the mass from species file
+          // units = (1/A) * 1/s
+          double flux = (psat - p)/sqrt(2.0*3.14159*m_h2o*update->boltz*Tp);
+
+          // does it sublimate?
+          if (flux > 0) {
+            double area = 3.14159*4.0*Rp*Rp;
+            double srho = 1.0; // TODO: replace with actual mass density
+            double mloss = flux * area * srho * update->dt;
+
+            // update mass
+            mp -= mloss;
+
+            // recalculate radius
+            double vol = mp/srho;
+            Rp = pow(vol*0.75/3.14159,1./3.);
+          }
+
+        }
 
         // update per-grid forces for outputting
 

@@ -65,6 +65,8 @@ class FixSolid : public Fix {
   // for approximating mass loss due to heating
 
   int reduce_size_flag;
+  int pwhich; // pressure
+  int ifc; // id of fix or compute
   double hvap, hsolid; // specific enthalpy of vapor and solid
   double Tvap; // temperature of vapor phase
 
