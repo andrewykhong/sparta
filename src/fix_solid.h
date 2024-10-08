@@ -82,9 +82,7 @@ class FixSolid : public Fix {
   double *Tg, *Ug; // gas temperature, velocity
   double alpha,eps; // for defining surface-type (Lord) for Green
 
-  void force_burt();
-  void force_green();
-  void force_empirical();
+  void update_force();
   void update_particle();
   void move_langevin();
   void reset_velocities(int);

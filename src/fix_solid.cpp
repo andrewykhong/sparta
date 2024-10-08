@@ -264,9 +264,16 @@ void FixSolid::init()
 
   // pre-compute prefactors for force and heat flux delta functions
 
-  F1 = 1.0+4.0/9.0*(1.0-eps)*(1.0-alpha);
-  F2 = (1.0-eps)*alpha*sqrt(MY_PI)/3.0;
-  Q1 = (1.0-eps)*alpha;
+  if (force_type == GREEN) {
+    F1 = 1.0+4.0/9.0*(1.0-eps)*(1.0-alpha);
+    F2 = (1.0-eps)*alpha*sqrt(MY_PI)/3.0;
+    Q1 = (1.0-eps)*alpha;
+  } else if (force_type == BURT) { 
+    // alpha here is tau in Burt model
+    F1 = 1.0;
+    F2 = alpha*sqrt(2.0*MY_PI)/3.0;
+    Q1 = alpha;
+  }
 
   reallocate();
 }
@@ -317,9 +324,7 @@ void FixSolid::end_of_step()
 
   // force model type
 
-  if (force_type == GREEN) force_green();
-  //else if (force_type == BURT) force_burt();
-  //else if (force_type == EMPIRICAL) force_empirical();
+  update_force();
 
   if (update->ntimestep % nevery) return;
 
@@ -340,7 +345,7 @@ void FixSolid::end_of_step()
    (Gallis, Torczynski, Rader - Phys. of Fluids - 2001)
 ---------------------------------------------------------------------- */
 
-void FixSolid::force_green()
+void FixSolid::update_force()
 {
   // grab various particle and grid quantities
 
@@ -462,7 +467,181 @@ void FixSolid::force_green()
           cmag = sqrt(cx*cx+cy*cy+cz*cz);
 
           // mean thermal speed of outgoing particles
-          cp = sqrt(2.0*update->boltz*Tp/mass);
+          if (force_type == GREEN) {
+            cp = sqrt(2.0*update->boltz*Tp/mass);
+
+            Fg[0] += mass*cx*(F1*cmag+F2*cp);
+            Fg[1] += mass*cy*(F1*cmag+F2*cp);
+            if (dim == 3)
+              Fg[2] += mass*cz*(F1*cmag+F2*cp);
+            Qg    += mass*cmag*Q1*(0.5*cmag*cmag-cp*cp);
+            //Qg += cmag*Q1*(erot - (0.5*nrot)*update->boltz*Tp);
+          } else if (force_type == BURT) {
+            cp = sqrt(update->boltz*Tp*mass);
+
+            Fg[0] += cx*(mass*cmag+F2*cp);
+            Fg[1] += cy*(mass*cmag+F2*cp);
+            if (dim == 3)
+              Fg[2] += cz*(mass*cmag+F2*cp);
+            Qg += cmag*Q1*(0.5*mass*cmag*cmag-2.0*update->boltz*Tp);
+            //Qg += cmag*Q1*(erot - (0.5*nrot)*update->boltz*Tp);
+          }
+        }
+        ip = next[ip];
+      } // end while
+
+      csx = Rp*Rp*MY_PI;
+      prefactor = csx * update->fnum / cinfo[icell].volume;
+      Fg[0] *= prefactor;
+      Fg[1] *= prefactor;
+      Fg[2] *= prefactor;
+      Qg    *= prefactor;
+
+      // update per-particle forces
+
+      solid_force[sid][0] = (solid_force[sid][0]*nsample+Fg[0])/(nsample+1.0);
+      solid_force[sid][1] = (solid_force[sid][1]*nsample+Fg[1])/(nsample+1.0);
+      solid_force[sid][2] = (solid_force[sid][2]*nsample+Fg[2])/(nsample+1.0);
+      solid_force[sid][3] = (solid_force[sid][3]*nsample+Qg)/(nsample+1.0);
+
+      solid_bulk[sid][0] = (solid_bulk[sid][0]*nsample+um[0])/(nsample+1.0);
+      solid_bulk[sid][1] = (solid_bulk[sid][1]*nsample+um[1])/(nsample+1.0);
+      solid_bulk[sid][2] = (solid_bulk[sid][2]*nsample+um[2])/(nsample+1.0);
+      solid_bulk[sid][3] = (solid_bulk[sid][3]*nsample+T)/(nsample+1.0);
+
+    } // end solid loop
+  } // end cells
+
+  // number of samples
+  nsample++;
+
+}
+
+/* ----------------------------------------------------------------------
+   Momentum and heat fluxes based on Burt Model
+   (Burt, Boyd - AIAA - 2004)
+---------------------------------------------------------------------- */
+
+void FixSolid::force_burt)
+{
+  // grab various particle and grid quantities
+
+  Particle::OnePart *particles = particle->particles;
+  Particle::Species *species = particle->species;
+  int *next = particle->next;
+  Grid::ChildInfo *cinfo = grid->cinfo;
+
+  // solid particle related vectors
+
+  double **solid_array = particle->edarray[particle->ewhich[index_solid_params]];
+  double **solid_force = particle->edarray[particle->ewhich[index_solid_force]];
+  double **solid_bulk  = particle->edarray[particle->ewhich[index_solid_bulk]];
+
+  int i,icell,ip,is; // dummy indices
+  int ispecies, sid; // species of particle i; particle indices of solid particles
+  int np, nsolid; // number of total simulators; number of solid simulators
+  double Rp,mp,Tp,csp; // particle radius, mass, temperature, and specific heat
+  double cx,cy,cz,cmag; // thermal velocity of gas and solid particles
+  double *u,*up;  // velocity of gas and solid particles
+  double um[3]; // drift velocity (zero if no charge or gravity) 
+  double Fg[3],Qg; // force and heat flux as defined by Green function
+  double totalmass; // for calculating temperature
+  double mass,T; // gas particle mass, and temperature
+  double csx,cp; // solid particle cross section and thermal velocity
+  double frat; // ratio of gas to solid weight
+  double prefactor; // prefactor
+
+  for (icell = 0; icell < nglocal; icell++) {
+
+    np = cinfo[icell].count;
+    if (np <= 1) continue;
+
+    // only need ids
+
+    if (np > npmax) {
+      while (np > npmax) npmax += DELTAPART;
+      memory->destroy(id);
+      memory->create(id,npmax,"soliddrag:id");
+    }
+
+    // calculate mean gas velocity and record solid particle id's
+
+    nsolid = 0;
+    um[0] = 0.0;
+    um[1] = 0.0;
+    um[2] = 0.0;
+    totalmass = 0.0;
+
+    ip = cinfo[icell].first;
+    while (ip >= 0) {
+      ispecies = particles[ip].ispecies;
+      if (ispecies == solid_species) id[nsolid++] = ip;
+      else {
+        mass = species[ispecies].mass;
+        u = particles[ip].v;
+        totalmass += mass;
+        um[0] += mass*u[0];
+        um[0] += mass*u[1];
+        um[0] += mass*u[2];
+      }
+      ip = next[ip];
+    }
+
+    um[0] /= totalmass;
+    um[1] /= totalmass;
+    um[2] /= totalmass;
+
+    // calculate gas state
+
+    T = 0;
+    ip = cinfo[icell].first;
+    while (ip >= 0) {
+      ispecies = particles[ip].ispecies;
+      if (ispecies != solid_species) {
+        mass = species[ispecies].mass;
+        u = particles[ip].v;
+
+        cx = u[0]-um[0];
+        cy = u[1]-um[1];
+        cz = u[2]-um[2];
+        T += mass*(cx*cx+cy*cy+cz*cz);
+      }
+      ip = next[ip];
+    }
+
+    // removed half from numer. and denom.
+
+    T /= (3.0*update->boltz*(np-nsolid));
+
+    // calculate incident forces and heat flux
+
+    for (is = 0; is < nsolid; is++) {
+      sid = id[is];
+      up = particles[sid].v;
+      Rp = solid_array[sid][1];
+      mp = solid_array[sid][2];
+      Tp = solid_array[sid][3];
+      csp = solid_array[sid][4];
+
+      Fg[0] = Fg[1] = Fg[2] = Qg = 0.0;
+
+      ip = cinfo[icell].first;
+      while (ip >= 0) {
+        ispecies = particles[ip].ispecies;
+        if (ispecies != solid_species) {
+          mass = species[ispecies].mass;
+
+          // account for difference in species weight
+          u = particles[ip].v;
+
+          cx = u[0]-up[0];
+          cy = u[1]-up[1];
+          cz = u[2]-up[2];
+          if (dim == 2) cz = 0.0;
+          cmag = sqrt(cx*cx+cy*cy+cz*cz);
+
+          // mean thermal speed of outgoing particles
+          cp = sqrt(2.0*MY_PI*update->boltz*Tp*mass);
 
           Fg[0] += mass*cx*(F1*cmag+F2*cp);
           Fg[1] += mass*cy*(F1*cmag+F2*cp);
@@ -499,6 +678,7 @@ void FixSolid::force_green()
   nsample++;
 
 }
+
 
 /* ----------------------------------------------------------------------
    Update velocities and positions using simple Euler scheme
