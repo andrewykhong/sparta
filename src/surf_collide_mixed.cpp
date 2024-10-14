@@ -107,7 +107,8 @@ SurfCollideMixed::SurfCollideMixed(SPARTA *sparta, int narg, char **arg) :
         stype[isp] = PISTON;
         iarg++;
       }
-      vwall == atof(arg[iarg++]);
+      printf(arg[iarg]);
+      vwall = atof(arg[iarg++]);
       if (vwall <= 0.0) error->all(FLERR,"Piston velocity <= 0.0");
     } else if (strcmp(arg[iarg],"vanish") == 0) {
       iarg++;
