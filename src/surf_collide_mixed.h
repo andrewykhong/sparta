@@ -39,15 +39,19 @@ class SurfCollideMixed : public SurfCollide {
 
  protected:
   int *stype;                // surface collision type for each species
-  int dflag, sflag, aflag;   // surface used flags
+  // flags for diffuse, rotating, translating, rot-trans surface;
+  int diffuse_flag, rotate_flag, translate_flag, tr_flag;
 
   double acc;                // surface accomodation coeff
   double vx,vy,vz;           // translational velocity of surface
   double wx,wy,wz;           // angular velocity of surface
   double px,py,pz;           // point to rotate surface around
+  double dt;                 // time step
+  double vwall;              // wall velocity for piston
   int tflag,rflag;           // flags for translation and rotation
   int trflag;                // 1 if either tflag or rflag is set
   int noslip_flag;           // 1 if no slip at wall
+  int piston_flag;           // 1 if any species has a piston_flag assigned
 
   Surf::Line *lines;
   Surf::Tri *tris;

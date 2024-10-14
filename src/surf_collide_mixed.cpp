@@ -36,7 +36,7 @@ using namespace SPARTA_NS;
 using namespace MathConst;
 
 enum{NUMERIC,CUSTOM,VARIABLE,VAREQUAL,VARSURF};   // surf_collide classes
-enum{DIFFUSE,SPECULAR,ADIABATIC,CLL};
+enum{DIFFUSE,SPECULAR,ADIABATIC,CLL,PISTON,VANISH};
 enum{NONE,DISCRETE,SMOOTH};
 
 // straightforward to add other surface models:
@@ -52,9 +52,10 @@ SurfCollideMixed::SurfCollideMixed(SPARTA *sparta, int narg, char **arg) :
   memory->create(stype,nspecies,"surf_mixed:stype");
   for (int i = 0; i < nspecies; i++) stype[i] = -1;
 
-  dflag = rflag = sflag = 0;
-  tflag = rflag = 0;
+  diffuse_flag = 0;
+  translate_flag = rotate_flag = 0;
   noslip_flag = 0;
+  piston_flag = 0;
 
   // find all species
 
@@ -63,7 +64,7 @@ SurfCollideMixed::SurfCollideMixed(SPARTA *sparta, int narg, char **arg) :
   int isp;
   while (iarg < narg) {
     if(strcmp(arg[iarg],"diffuse") == 0) {
-      dflag = 1;
+      diffuse_flag = 1;
       iarg++;
       while (1) {
         isp = particle->find_species(arg[iarg]);
@@ -76,7 +77,6 @@ SurfCollideMixed::SurfCollideMixed(SPARTA *sparta, int narg, char **arg) :
       if (acc < 0.0 || acc > 1.0)
         error->all(FLERR,"Illegal surf_collide mixed (diffuse) command");
     } else if (strcmp(arg[iarg],"specular") == 0) {
-      sflag = 1;
       iarg++;
       while (1) {
         isp = particle->find_species(arg[iarg]);
@@ -87,11 +87,10 @@ SurfCollideMixed::SurfCollideMixed(SPARTA *sparta, int narg, char **arg) :
       if (iarg < narg) { // need to check if any args left
         if (strcmp(arg[iarg],"noslip") == 0) {
           noslip_flag = 1;
-          iarg ++;
+          iarg++;
         }
       }
-    } else if (strcmp(arg[iarg],"adiabtic") == 0) {
-      aflag = 1;
+    } else if (strcmp(arg[iarg],"adiabatic") == 0) {
       iarg++;
       while (1) {
         isp = particle->find_species(arg[iarg]);
@@ -99,10 +98,29 @@ SurfCollideMixed::SurfCollideMixed(SPARTA *sparta, int narg, char **arg) :
         stype[isp] = ADIABATIC;
         iarg++;
       }
+    } else if (strcmp(arg[iarg],"piston") == 0) {
+      piston_flag = 1;
+      iarg++;
+      while (1) {
+        isp = particle->find_species(arg[iarg]);
+        if (isp < 0) break;
+        stype[isp] = PISTON;
+        iarg++;
+      }
+      vwall == atof(arg[iarg++]);
+      if (vwall <= 0.0) error->all(FLERR,"Piston velocity <= 0.0");
+    } else if (strcmp(arg[iarg],"vanish") == 0) {
+      iarg++;
+      while (1) {
+        isp = particle->find_species(arg[iarg]);
+        if (isp < 0) break;
+        stype[isp] = VANISH;
+        iarg++;
+      }
     } else if (strcmp(arg[iarg],"translate") == 0) {
       if (iarg+4 > narg)
         error->all(FLERR,"Illegal surf_collide mixed command");
-      tflag = 1;
+      translate_flag = 1;
       vx = atof(arg[iarg+1]);
       vy = atof(arg[iarg+2]);
       vz = atof(arg[iarg+3]);
@@ -110,7 +128,7 @@ SurfCollideMixed::SurfCollideMixed(SPARTA *sparta, int narg, char **arg) :
     } else if (strcmp(arg[iarg],"rotate") == 0) {
       if (iarg+7 > narg)
         error->all(FLERR,"Illegal surf_collide mixed command");
-      rflag = 1;
+      rotate_flag = 1;
       px = atof(arg[iarg+1]);
       py = atof(arg[iarg+2]);
       pz = atof(arg[iarg+3]);
@@ -165,7 +183,41 @@ SurfCollideMixed::~SurfCollideMixed()
 void SurfCollideMixed::init()
 {
   SurfCollide::init();
-  if (dflag) check_tsurf();
+  dt = update->dt;
+
+  // check that this model only assigned to surfs with axis-aligned normals
+  // index = position in surf->sc list that this SurfCollide instance is
+
+  if (piston_flag) {
+
+    int index;
+    for (index = 0; index < surf->nsc; index++)
+      if (this == surf->sc[index]) break;
+
+    int flag = 0;
+
+    if (domain->dimension == 2) {
+      Surf::Line *lines = surf->lines;
+      int nsurf = surf->nsurf;
+      for (int i = 0; i < nsurf; i++)
+        if (lines[i].isc == index) {
+          if (lines[i].norm[0] != 0.0 && lines[i].norm[1] != 0.0) flag++;
+        }
+    }
+
+    if (domain->dimension == 3) {
+      Surf::Tri *tris = surf->tris;
+      int nsurf = surf->nsurf;
+      for (int i = 0; i < nsurf; i++)
+        if (tris[i].isc == index) {
+          if (tris[i].norm[0] != 0.0 && tris[i].norm[1] != 0.0) flag++;
+          if (tris[i].norm[1] != 0.0 && tris[i].norm[2] != 0.0) flag++;
+          if (tris[i].norm[2] != 0.0 && tris[i].norm[0] != 0.0) flag++;
+        }
+    }
+  }
+  
+  if (diffuse_flag) check_tsurf();
 }
 
 /* ----------------------------------------------------------------------
@@ -183,7 +235,7 @@ void SurfCollideMixed::init()
 ------------------------------------------------------------------------- */
 
 Particle::OnePart *SurfCollideMixed::
-collide(Particle::OnePart *&ip, double &,
+collide(Particle::OnePart *&ip, double &dtremain,
         int isurf, double *norm, int isr, int &reaction)
 {
   nsingle++;
@@ -204,10 +256,12 @@ collide(Particle::OnePart *&ip, double &,
   }
 
   int isp;
+  int check_jp = 0;
   if (ip) {
     isp = ip->ispecies;
     // diffuse 
     if (stype[isp] == DIFFUSE) {
+      check_jp  = 1;
       // set temperature of isurf if VARSURF or CUSTOM
       if (persurf_temperature) {
         tsurf = t_persurf[isurf];
@@ -220,15 +274,64 @@ collide(Particle::OnePart *&ip, double &,
       }
     // specular
     } else if (stype[isp] == SPECULAR && !velreset) {
+      check_jp  = 1;
       if (noslip_flag)  MathExtra::negate3(ip->v);
       else  MathExtra::reflect3(ip->v,norm);
     //adiabatic
     } else if (stype[isp] == ADIABATIC && !velreset) {
+      check_jp  = 1;
       scatter_isotropic(ip,norm);
+    // vanish
+    } else if (stype[isp] == VANISH) {
+      ip = NULL;
+      return NULL;
+    // piston
+    } else if (stype[isp] == PISTON) {
+      int dim,which;
+
+      if (norm[0] != 0.0) {
+        dim = 0;
+        if (norm[0] < 0.0) which = 1;
+        else which = 0;
+      } else if (norm[1] != 0.0) {
+        dim = 1;
+        if (norm[1] < 0.0) which = 1;
+        else which = 0;
+      } else {
+        dim = 2;
+        if (norm[2] < 0.0) which = 1;
+        else which = 0;
+      }
+
+      double *x = ip->x;
+      double *v = ip->v;
+      double xwall = x[dim];
+      double xorig = xwall - v[dim]*(dt - dtremain);
+      double vorig = v[dim];
+
+      double uprime,xprime;
+      if (which == 0) {
+        uprime = -2.0*vwall - vorig;
+        xprime = 2.0*xwall - xorig + uprime*dt;
+        if (xprime <= xwall) {
+          ip = NULL;
+          return NULL;
+        }
+      } else {
+        uprime = 2.0*vwall - vorig;
+        xprime = 2.0*xwall - xorig + uprime*dt;
+        if (xprime >= xwall) {
+          ip = NULL;
+          return NULL;
+        }
+      }
+
+      dtremain = (xprime - xwall) / uprime;
+      v[dim] = uprime;
     } else error->all(FLERR,"Could not find surface collision model");
   }
 
-  if (jp) {
+  if (jp && check_jp) {
     isp = jp->ispecies;
     // diffuse 
     if (stype[isp] == DIFFUSE) {
