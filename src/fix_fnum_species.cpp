@@ -19,6 +19,7 @@
 #include "grid.h"
 #include "domain.h"
 #include "particle.h"
+#include "mixture.h"
 #include "memory.h"
 #include "error.h"
 #include "math_const.h"
@@ -36,7 +37,7 @@ FixFnumSpecies::FixFnumSpecies(SPARTA *sparta, int narg, char **arg) :
   if (grid->cellweightflag)
     error->all(FLERR,"Fix fnum/species not currently supported for axi-symmetric");
 
-  if (narg < 4) error->all(FLERR,"Not enough arguments for fix fnum/species command");
+  if (narg < 5) error->all(FLERR,"Not enough arguments for fix fnum/species command");
   
   // initialize array for storing weights of each species
 
@@ -45,9 +46,13 @@ FixFnumSpecies::FixFnumSpecies(SPARTA *sparta, int narg, char **arg) :
   for (int i = 0; i < nspecies; i++)
     particle->species[i].specwt = 1.0;
 
+  imix = particle->find_mixture(arg[2]);
+  if (imix < 0)
+    error->all(FLERR,"Fix fnum/species mixture ID does not exist");
+
   // relative to update->fnum or no?  
 
-  int iarg = 2;
+  int iarg = 3;
   int rflag = 0;
   if (strcmp(arg[iarg],"relative") == 0) {
     rflag = 1;
@@ -65,6 +70,7 @@ FixFnumSpecies::FixFnumSpecies(SPARTA *sparta, int narg, char **arg) :
     else particle->species[isp].specwt = atof(arg[iarg+1])/update->fnum;
     iarg += 2;
   }
+
 }
 
 /* ---------------------------------------------------------------------- */
@@ -85,9 +91,19 @@ int FixFnumSpecies::setmask()
 
 void FixFnumSpecies::init()
 {
+  // comes after mixture init in particles so mixture will not reset
+  // should not actually need to do this
+
+  // reset weighted cummulatives
+  int *fraction_flag = particle->mixture[imix]->fraction_flag;
+  double *fraction_user = particle->mixture[imix]->fraction_user;
+  double *fraction_wt = particle->mixture[imix]->fraction;
+  double *cummulative_wt = particle->mixture[imix]->cummulative_wt;
+
+  particle->mixture[imix]->init_fraction_wt(fraction_flag,fraction_user,fraction_wt,cummulative_wt);
+
   return;
 }
-
 
 
 

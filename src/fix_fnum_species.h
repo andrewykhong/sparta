@@ -35,7 +35,8 @@ class FixFnumSpecies : public Fix {
   int rflag;
 
  protected:
-
+  int imix;
+  void reset_cumulative();
 };
 
 }

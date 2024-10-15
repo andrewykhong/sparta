@@ -159,7 +159,7 @@ void FixEmitSurf::init()
 
   nspecies = particle->mixture[imix]->nspecies;
   fraction = particle->mixture[imix]->fraction;
-  cummulative = particle->mixture[imix]->cummulative;
+  cummulative = particle->mixture[imix]->cummulative_wt;
 
   // subsonic prefactor
 

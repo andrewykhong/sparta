@@ -46,7 +46,7 @@ enum{NONE,DISCRETE,SMOOTH};
 SurfCollideMixed::SurfCollideMixed(SPARTA *sparta, int narg, char **arg) :
   SurfCollide(sparta, narg, arg)
 {
-  if (narg < 4) error->all(FLERR,"Illegal surf collide mixed command");
+  if (narg < 4) error->all(FLERR,"Illegal surf collide mixed narg command");
 
   int nspecies = particle->nspecies;
   memory->create(stype,nspecies,"surf_mixed:stype");
@@ -120,7 +120,7 @@ SurfCollideMixed::SurfCollideMixed(SPARTA *sparta, int narg, char **arg) :
       }
     } else if (strcmp(arg[iarg],"translate") == 0) {
       if (iarg+4 > narg)
-        error->all(FLERR,"Illegal surf_collide mixed command");
+        error->all(FLERR,"Illegal surf_collide mixed translate command");
       translate_flag = 1;
       vx = atof(arg[iarg+1]);
       vy = atof(arg[iarg+2]);
@@ -128,7 +128,7 @@ SurfCollideMixed::SurfCollideMixed(SPARTA *sparta, int narg, char **arg) :
       iarg += 4;
     } else if (strcmp(arg[iarg],"rotate") == 0) {
       if (iarg+7 > narg)
-        error->all(FLERR,"Illegal surf_collide mixed command");
+        error->all(FLERR,"Illegal surf_collide mixed rotate command");
       rotate_flag = 1;
       px = atof(arg[iarg+1]);
       py = atof(arg[iarg+2]);
@@ -147,7 +147,7 @@ SurfCollideMixed::SurfCollideMixed(SPARTA *sparta, int narg, char **arg) :
                      "Surf_collide diffuse rotation invalid for 2d axisymmetric");
       }
       iarg += 7;
-    } else error->all(FLERR,"Illegal surf_collide mixed command");
+    } else error->all(FLERR,"Illegal surf_collide mixed rotate command");
   }
 
   // check all species have a surface collision model assigned
@@ -155,8 +155,9 @@ SurfCollideMixed::SurfCollideMixed(SPARTA *sparta, int narg, char **arg) :
   for (int i = 0; i < nspecies; i++)
     if (stype[i] < 0) error->all(FLERR,"No surface model assigned to a species");
 
-  if (tflag && rflag) error->all(FLERR,"Illegal surf_collide mixed command");
-  if (tflag || rflag) trflag = 1;
+  
+  if (translate_flag && rotate_flag) error->all(FLERR,"Illegal surf_collide mixed rot/trans command");
+  if (translate_flag || rotate_flag) trflag = 1;
   else trflag = 0;
 
   // for updating custom for diffuse walls
@@ -417,7 +418,7 @@ void SurfCollideMixed::diffuse(Particle::OnePart *p, double *norm)
 
     if (trflag) {
       double vxdelta,vydelta,vzdelta;
-      if (tflag) {
+      if (translate_flag) {
         vxdelta = vx; vydelta = vy; vzdelta = vz;
         double dot = vxdelta*norm[0] + vydelta*norm[1] + vzdelta*norm[2];
 
