@@ -55,6 +55,7 @@ class FixSolid : public Fix {
   int index_solid_params, index_solid_force, index_solid_bulk;
   int solid_species;  // species for solid species
   int npmax; // track upper bound for number of particles
+  double fnum_rat; // ratio of gas to solid particle Fnum
 
   // for now, all solid particles have same initial properties
 

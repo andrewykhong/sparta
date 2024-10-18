@@ -171,7 +171,7 @@ void FixSolid::update_force_fm()
       } // end while
 
       csx = Rp*Rp*MY_PI;
-      prefactor = csx * update->fnum / cinfo[icell].volume;
+      prefactor = csx * update->fnum / cinfo[icell].volume * fnum_rat;
       Fg[0] *= prefactor;
       Fg[1] *= prefactor;
       Fg[2] *= prefactor;
@@ -349,7 +349,7 @@ void FixSolid::update_force_emp()
       } // end while
 
       csx = Rp*Rp*MY_PI;
-      prefactor = csx * update->fnum / cinfo[icell].volume;
+      prefactor = csx * update->fnum / cinfo[icell].volume * fnum_rat;
       Fg[0] *= prefactor;
       Fg[1] *= prefactor;
       Fg[2] *= prefactor;

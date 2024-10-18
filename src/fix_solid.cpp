@@ -271,6 +271,8 @@ void FixSolid::init()
     Q1 = alpha;
   }
 
+  fnum_rat = 1.0/particle->species[solid_species].specwt;
+
   reallocate();
 }
 
