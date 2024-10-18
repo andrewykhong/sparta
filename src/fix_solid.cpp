@@ -401,13 +401,14 @@ void FixSolid::update_particle()
         // update radius and mass (TODO: add later)
 
         if (reduce_size_flag) {
+          error->one(FLERR,"should not be here");
 
           // grab pressure in cell
           double p; // pressure
           if (pwhich == PZERO) p = 0;
           //else if (pwhich == COMPUTE)
 
-          // calcaulte saturatino temperautre (Fanale and Salvail 1984)
+          // calculate saturation temperature (Fanale and Salvail 1984)
           double psat = (3.56e12) * exp(-(6147.667/Tp));
 
           // Hertz Knudsen Equation for flux of sulbiming molecules
@@ -556,6 +557,7 @@ void FixSolid::move_langevin()
         B2 = random_normal()*stdevB2;
 
         // velocities and positions
+
         for (int d = 0; d < dim; d++) {
           particles[ip].x[d] = particles[ip].x[d] + 
             (particles[ip].v[d] / beta)*(1.0-delta) + B2;
@@ -563,6 +565,7 @@ void FixSolid::move_langevin()
         }
         
         // temperature
+
         Tp = Tp + Q*update->dt/csp/mp;
 
         // update particle radii
