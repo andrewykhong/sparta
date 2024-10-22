@@ -74,27 +74,30 @@ FixSolid::FixSolid(SPARTA *sparta, int narg, char **arg) :
   // initial solid particle temperature and specific heat
 
   Rp0 = atof(arg[3]);
-  rhop0 = atof(arg[4]);
-  if (dim == 2) mp0 = 3.141598*Rp0*Rp0*rhop0;
-  else mp0 = 4./3.*3.14159*pow(Rp0,3.0)*rhop0;
+  rho_solid = atof(arg[4]);
+  rho_liquid = atof(arg[5]);
+  // assume all solid at first
+  if (dim == 2) mp0 = 3.141598*Rp0*Rp0*rho_solid;
+  else mp0 = 4./3.*3.14159*pow(Rp0,3.0)*rho_solid;
   Tp0 = atof(arg[5]);
-  in_csp = atof(arg[6]);
+  cp_solid = atof(arg[6]);
+  cp_liquid = atof(arg[7]);
 
   // optional args
 
   ifix = -1;
   nevery = 1; // frequency to update particle vel + pos
-  reduce_size_flag = 0; // reduce size of particle radii over time due to heat
+  phase_flag = 0; // reduce size of particle radii over time due to heat
   move_type = EULER;
   force_type = NOFORCE;
   pwhich = PZERO;
   uxp0 = uyp0 = uzp0 = 0.0;
-  int iarg = 7;
+  int iarg = 8;
   while (iarg < narg) {
     // to model particle mass loss
     if (strcmp(arg[iarg],"reduce") == 0) {
       if (iarg+3 > narg) error->all(FLERR,"Invalid fix solid command");
-      reduce_size_flag = 1;
+      phase_flag = 1;
 
       // grab idsource from fix or compute (character between '[' and ']')
       int n = strlen(arg[iarg+1]);
@@ -296,9 +299,8 @@ void FixSolid::update_custom(int index, double,
 
   solid_array[index][0] = 1.0; // existing particles are 1.0 (maybe not needed)
   solid_array[index][1] = Rp0; // radius
-  solid_array[index][2] = mp0; // mass
-  solid_array[index][3] = Tp0; // temperature
-  solid_array[index][4] = in_csp; // specific heat
+  solid_array[index][2] = Tp0; // temperature
+  solid_array[index][3] = 1.0; // volume fraction which is solid
 
   solid_force[index][0] = 0.0; // Fx
   solid_force[index][1] = 0.0; // Fy
@@ -309,6 +311,7 @@ void FixSolid::update_custom(int index, double,
   solid_bulk[index][1] = 0.0; // Ugy
   solid_bulk[index][2] = 0.0; // Ugz
   solid_bulk[index][3] = 0.0; // Tg
+  solid_bulk[index][3] = 0.0; // Pg
 }
 
 /* ---------------------------------------------------------------------- */
@@ -331,7 +334,7 @@ void FixSolid::end_of_step()
 
   ndelete = 0;
   if (move_type == EULER) update_particle();
-  else if (move_type == LANGEVIN) move_langevin();
+  //else if (move_type == LANGEVIN) move_langevin();
   else if (move_type == NOMOVE) reset_velocities(0); // zero out velocities
 
   // delete solid particles with no mass
@@ -339,10 +342,7 @@ void FixSolid::end_of_step()
   if (ndelete) particle->compress_reactions(ndelete,dellist);
 }
 
-/* ----------------------------------------------------------------------
-   Update velocities and positions using simple Euler scheme
-   (no Brownian motion)
----------------------------------------------------------------------- */
+/* ---------------------------------------------------------------------- */
 
 void FixSolid::update_particle()
 {
@@ -366,7 +366,9 @@ void FixSolid::update_particle()
   // particle related
 
   double v[3],cx,cy,cz,csq;
-  double Rp,mp,Tp,csp;
+  double Rp,phi_s,phi_l,csp;
+  double mp, mp_s, mp_l;
+  double Tp,Tp_new;
   double Q,mp_loss,rho,new_vol;
 
   int nsolid;
@@ -388,32 +390,99 @@ void FixSolid::update_particle()
     while (ip >= 0) {
       if (particles[ip].ispecies == solid_species) {
         Rp = solid_array[ip][1];
-        mp = solid_array[ip][2];
-        Tp = solid_array[ip][3];
-        csp = solid_array[ip][4];
+        Tp = solid_array[ip][2];
+        phi_s = solid_array[ip][3];
+        phi_l = 1.0-phi_s;
+        csp = phi_s*cp_solid + phi_l*cp_liquid;
+
+        Vp = 4./3.*3.14159*pow(Rp,3.0);
+        mp_l = Vp*(phi_s*rho_solid + phi_l*rho_liquid);
+        mp_s = Vp*(phi_s*rho_solid + phi_l*rho_liquid);
+        mp = mp_s + mp_l;
 
         // velocities
         for (int d = 0; d < dim; d++)
           particles[ip].v[d] = particles[ip].v[d] + solid_force[ip][d]*update->dt;
         
         // temperature
-        Tp = Tp + solid_force[ip][3]*update->dt/csp/mp;
-        solid_array[ip][3] = Tp;
+        Tp_new = Tp + solid_force[ip][3]*update->dt/csp/mp;
 
         // update radius and mass (TODO: add later)
 
-        if (reduce_size_flag) {
+        if (phase_flag) {
           error->one(FLERR,"should not be here");
+
+          // account for liquid phase solidfying
+          if (Tp_new < 273.15) {
+            double H_fusion = 6.01/1000; // [kJ/mol] - same for H_solid
+            double E_solid = H_fusion*(mp_l);
+            double Ap = 4.0*3.14159*pow(Rp,2.0);
+            double E_q = abs(solid_force[ip][3])*Ap*update->dt;
+            if (E_solid < E_q) { // excess energy 
+
+            } else {
+              double dE = E_solid - E_q;
+              double remain_l = dE / H_fusion;
+              phi_s = 
+          
+          }
+
+
 
           // grab pressure in cell
           double p; // pressure
           if (pwhich == PZERO) p = 0;
           //else if (pwhich == COMPUTE)
 
-          // calculate saturation temperature (Fanale and Salvail 1984)
-          double psat = (3.56e12) * exp(-(6147.667/Tp));
+          // use updated temp
+          double T_degC = Tp - 273.15;
+
+          // calculate saturation pressure of ice and water based on particle temp
+          // ref: Huang 2018 
+          // Simple Accurate Formulat for Calc. Saturation Vapor Pressure
+
+          // if T_degC < 0, cannot be liquid
+          // if T_degC > 0, cannot be solid
+          double psat;
+          if (T_degC > 0) { // water
+            psat = exp(34.494 - (4924.99)/(T_degC+273.1))/pow(T_degC+105,1.57);
+          } else { // ice
+            psat = exp(43.494 - (6545.8)/(T_degC+278))/pow(T_degC+868,2.0);
+          }
+
+          // determine current phase of particle
+          double Tmelt = 273.15;
+          double ptriple = 611.657;
+          double v_vapor = 0.0186; // TODO: add temperature dependence
+          double H_vap = 40.657/1000.0; // J/mol TODO: add temperature dependence
+          double H_sub = 51.08/1000.0; // J/mol TODO: add temperature dependence
+
+          // determine vaporization temperature from Clausius-Clareyon
+          double Tvap = (1.0/273.15) - log(psat/ptriple)*v_vapor/H_vap;
+
+          // determine sublimzation temperature from CC
+          double Tsub = (1.0/273.15) - log(psat/ptriple)*v_vapor/H_sub;
+
+          // mass lost based on Hertz-Knudsen formular
+          // assume max evaporation rate
+          double m_h20 = 3e-26; // kg
+
+          double flux = 0;
+          if (p < ptriple && T > T_sub) { // sublimates
+            flux += (psat - p)/sqrt(2.0*3.14159*m_h2o*update->boltz*Tp);
+          } else if (p > ptriple) { // can both melt and vaporize
+            if (phi_s > 0) { // first melt off rest of 
+            flux += 
+          }
+
+          // (1/A) (1/s)
+          double flux = (psat - p)/sqrt(2.0*3.14159*m_h2o*update->boltz*Tp);
+
+          // magnus
+          // double psat = (610.94) * exp(-(6147.667/Tp));          
 
           // Hertz Knudsen Equation for flux of sulbiming molecules
+          // ref: Kossacki and Leliwa-Kopystynski (2014) Icarus
 
           // correction coefficients essentially
           double beta = 1.0;
@@ -438,11 +507,15 @@ void FixSolid::update_particle()
 
         }
 
+        // stpre new particle temp
+        solid_array[ip][2] = Tp_new;
+        solid_array[ip][3] = phi_s;
+
         // update per-grid forces for outputting
 
         array_grid[icell][0] += Rp;
         array_grid[icell][1] += mp;
-        array_grid[icell][2] += Tp;
+        array_grid[icell][2] += Tp_new;
         array_grid[icell][3] += solid_force[ip][0];
         array_grid[icell][4] += solid_force[ip][1];
         array_grid[icell][5] += solid_force[ip][2];
@@ -471,147 +544,7 @@ void FixSolid::update_particle()
   nsample = 0;
 }
 
-/* ----------------------------------------------------------------------
-   Update velocities and positions due to Brownian motion
-
-   Algorithm by Ermak / Buckholz  
-   (Ermak and Buckholz - J. Comp. Phys. - 1979)
----------------------------------------------------------------------- */
-
-void FixSolid::move_langevin()
-{
-  // grab various particle and grid quantities
-
-  Particle::OnePart *particles = particle->particles;
-  Particle::Species *species = particle->species;
-  int *next = particle->next;
-  Grid::ChildInfo *cinfo = grid->cinfo;
-
-  // solid particle related vectors
-
-  double **solid_array = particle->edarray[particle->ewhich[index_solid_params]];
-  double **solid_force = particle->edarray[particle->ewhich[index_solid_force]];
-  double **solid_bulk  = particle->edarray[particle->ewhich[index_solid_bulk]];
-
-  // indices
-
-  int i,icell,ip,ispecies,np;
-
-  double v[3],cx,cy,cz,csq;
-  double Rp,mp,Tp,csp;
-  double Fx,Fy,Fz,Q,Ux,Uy,Uz,Tg;
-  double beta, tau, delta;
-  double cp, stdevB1, stdevB2, B1, B2;
-  double rho, mp_loss, new_vol;
-
-  for (icell = 0; icell < nglocal; icell++) {
-    np = cinfo[icell].count;
-    if (np <= 0) continue;
-
-    // update only solid particles
-
-    ip = cinfo[icell].first;
-    while (ip >= 0) {
-      if (particles[ip].ispecies == solid_species) {
-        Rp = solid_array[ip][1];
-        mp = solid_array[ip][2];
-        Tp = solid_array[ip][3];
-        csp = solid_array[ip][4];
-
-        Fx = solid_force[ip][0];
-        Fy = solid_force[ip][1];
-        Fz = solid_force[ip][2];
-        Q  = solid_force[ip][3];
-
-        Ux = solid_bulk[ip][0];
-        Uy = solid_bulk[ip][1];
-        Uz = solid_bulk[ip][2];
-        Tg = solid_bulk[ip][3];
-
-        memcpy(v,particles[ip].v,3*sizeof(double));
-
-        // peculiar velocities
-
-        cx = v[0]-Ux;
-        cy = v[1]-Uy;
-        cz = v[2]-Uz;
-
-        // find effective friction (drag) coefficient beta as:
-        // abs(Fg . up) / (up . up)
-        // then find stopping time: tau = mp / beta
- 
-        csq = (cx*cx+cy*cy+cz*cz);
-        beta = fabs(Fx*cx+Fy*cy+Fz*cz)/csq;
-        tau = mp / beta;
-
-        // delta (~time step) = exp(-dt / tau)
-
-        delta = exp(-update->dt/tau);
-
-        // sample random normal variables
-
-        cp = sqrt(2.0*update->boltz*Tg/mp);
-        stdevB1 = sqrt(1.5*(1.0-delta*delta))*cp;
-        stdevB2 = update->dt/tau - 2.0*(1.0-delta)/(1.0+delta);
-        stdevB2 = sqrt(3.0)*cp*tau*sqrt(stdevB2);
-
-        B1 = random_normal()*stdevB1;
-        B2 = random_normal()*stdevB2;
-
-        // velocities and positions
-
-        for (int d = 0; d < dim; d++) {
-          particles[ip].x[d] = particles[ip].x[d] + 
-            (particles[ip].v[d] / beta)*(1.0-delta) + B2;
-          particles[ip].v[d] = particles[ip].v[d]*delta + B1;
-        }
-        
-        // temperature
-
-        Tp = Tp + Q*update->dt/csp/mp;
-
-        // update particle radii
-        if (reduce_size_flag && solid_array[ip][3] > Tvap) {
-
-          rho = mp/(4.0/3.0*MY_PI*Rp*Rp*Rp);
-          solid_array[ip][3] = Tvap;
-          Q = Q/(4.0*Rp*Rp*MY_PI);
-          mp_loss = Q/(hvap-hsolid)*update->dt*nevery;
-
-          // updated particle radius
-          if (mp > mp_loss) {
-            new_vol = (mp - mp_loss) / rho;
-            solid_array[ip][1] = pow(0.75*new_vol/MY_PI,1./3.);
-          } else {
-            solid_array[ip][1] = 0.0;
-
-            // delete particles with no mass
-            if (ndelete == maxdelete) {
-              maxdelete += DELTADELETE;
-              memory->grow(dellist,maxdelete,"solid:dellist");
-            }
-            dellist[ndelete++] = ip;
-          }
-        }
-
-      }
-
-      // reset forces and heat fluxes
-      for (i = 0; i < 8; i++) solid_force[ip][i] = 0.0;
-
-      ip = next[ip];
-    }
-
-  } // end cells
-
-  // reset number of samples
-  nsample = 0;
-}
-
-/* ----------------------------------------------------------------------
-   Update velocities and positions using simple Euler scheme
-   (no Brownian motion)
----------------------------------------------------------------------- */
+/* --------------------------------------------------------------------- */
 
 void FixSolid::reset_velocities(int reset_flag)
 {

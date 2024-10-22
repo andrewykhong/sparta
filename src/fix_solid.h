@@ -59,13 +59,14 @@ class FixSolid : public Fix {
 
   // for now, all solid particles have same initial properties
 
-  double rhop0, Rp0, mp0; // initial particle density, radius, and mass
-  double Tp0, in_csp; // initial temperature and specific heat
+  double Rp0, mp0; // initial particle radius and mass
+  double rho_solid, rho_liquid; // density of ice and water
+  double Tp0, cp_solid, cp_liquid; // initial temperature and specific heats
   double uxp0, uyp0, uzp0; // initial velocity of particle (for testing)
 
   // for approximating mass loss due to heating
 
-  int reduce_size_flag;
+  int phase_flag; // account for phase change
   int pwhich; // pressure
   int ifc; // id of fix or compute
   double hvap, hsolid; // specific enthalpy of vapor and solid
@@ -89,6 +90,11 @@ class FixSolid : public Fix {
   void move_langevin();
   void reset_velocities(int);
   double update_mass(double, double);
+
+  // for determining new particle size due to mass loss
+
+
+  // misc functions
 
   void reallocate();
 
