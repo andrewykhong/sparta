@@ -79,9 +79,9 @@ FixSolid::FixSolid(SPARTA *sparta, int narg, char **arg) :
   // assume all solid at first
   if (dim == 2) mp0 = 3.141598*Rp0*Rp0*rho_solid;
   else mp0 = 4./3.*3.14159*pow(Rp0,3.0)*rho_solid;
-  Tp0 = atof(arg[5]);
-  cp_solid = atof(arg[6]);
-  cp_liquid = atof(arg[7]);
+  Tp0 = atof(arg[6]);
+  cp_solid = atof(arg[7]);
+  cp_liquid = atof(arg[8]);
 
   // optional args
 
@@ -92,7 +92,7 @@ FixSolid::FixSolid(SPARTA *sparta, int narg, char **arg) :
   force_type = NOFORCE;
   pwhich = PZERO;
   uxp0 = uyp0 = uzp0 = 0.0;
-  int iarg = 8;
+  int iarg = 9;
   while (iarg < narg) {
     // to model particle mass loss
     if (strcmp(arg[iarg],"reduce") == 0) {
@@ -413,7 +413,7 @@ void FixSolid::update_particle()
           error->one(FLERR,"should not be here");
 
           // account for liquid phase solidfying
-          if (Tp_new < 273.15) {
+          /*if (Tp_new < 273.15) {
             double H_fusion = 6.01/1000; // [kJ/mol] - same for H_solid
             double E_solid = H_fusion*(mp_l);
             double Ap = 4.0*3.14159*pow(Rp,2.0);
@@ -425,7 +425,7 @@ void FixSolid::update_particle()
               double remain_l = dE / H_fusion;
               phi_s = 
           
-          }
+          }*/
 
 
 
@@ -467,16 +467,17 @@ void FixSolid::update_particle()
           // assume max evaporation rate
           double m_h20 = 3e-26; // kg
 
-          double flux = 0;
+          /*double flux = 0;
           if (p < ptriple && T > T_sub) { // sublimates
             flux += (psat - p)/sqrt(2.0*3.14159*m_h2o*update->boltz*Tp);
           } else if (p > ptriple) { // can both melt and vaporize
             if (phi_s > 0) { // first melt off rest of 
             flux += 
-          }
+          }*/
 
+          double flux = 0.0;
           // (1/A) (1/s)
-          double flux = (psat - p)/sqrt(2.0*3.14159*m_h2o*update->boltz*Tp);
+          if (T > T_sub) flux = (psat - p)/sqrt(2.0*3.14159*m_h2o*update->boltz*Tp);
 
           // magnus
           // double psat = (610.94) * exp(-(6147.667/Tp));          
@@ -485,17 +486,16 @@ void FixSolid::update_particle()
           // ref: Kossacki and Leliwa-Kopystynski (2014) Icarus
 
           // correction coefficients essentially
-          double beta = 1.0;
-          double alpha = 0.83; // rec from Gadsden 1998 and Winkler 2012 
-          double m_h2o = 1.0; // TODO: replace with the mass from species file
+          //double beta = 1.0;
+          //double alpha = 0.83; // rec from Gadsden 1998 and Winkler 2012 
+          //double m_h2o = 1.0; // TODO: replace with the mass from species file
           // units = (1/A) * 1/s
-          double flux = (psat - p)/sqrt(2.0*3.14159*m_h2o*update->boltz*Tp);
+          //double flux = (psat - p)/sqrt(2.0*3.14159*m_h2o*update->boltz*Tp);
 
           // does it sublimate?
           if (flux > 0) {
             double area = 3.14159*4.0*Rp*Rp;
-            double srho = 1.0; // TODO: replace with actual mass density
-            double mloss = flux * area * srho * update->dt;
+            double mloss = flux * area * rho_solid * update->dt;
 
             // update mass
             mp -= mloss;
