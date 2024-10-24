@@ -405,7 +405,7 @@ void FixSolid::update_particle()
           particles[ip].v[d] = particles[ip].v[d] + solid_force[ip][d]*update->dt;
         
         // temperature
-        Tp_new = Tp + solid_force[ip][3]*update->dt/csp/mp;
+        qin = solid_force[ip][3];
 
         // update radius and mass (TODO: add later)
 
@@ -428,6 +428,7 @@ void FixSolid::update_particle()
           }*/
 
 
+          // First, determine saturation pressure
 
           // grab pressure in cell
           double p; // pressure
@@ -450,22 +451,37 @@ void FixSolid::update_particle()
             psat = exp(43.494 - (6545.8)/(T_degC+278))/pow(T_degC+868,2.0);
           }
 
+          // Second determine mass lost (if any) according to Hertz-Knudsen
+          double flux = (psat - p)/sqrt(2.0*3.14159*m_h2o*update->boltz*Tp);
+          if (flux < 0) flux = 0.0;
+
+          // determine net heat flux
+          double area = 3.14159*4.0*Rp*Rp;
+          double mass_loss = flux * area * rho_solid * update->dt;
+          double qflux = mass_loss * H_sub;
+          double qnet = qin - qflux;
+
+          // update particle temp based on net heat flux
+          // based on sign of qnet, gas may or may not provide enough energy
+          // .. to compensate energy lost due to phase change
+          Tp_new = Tp + qnet*update->dt/csp/mp;
+
           // determine current phase of particle
-          double Tmelt = 273.15;
-          double ptriple = 611.657;
-          double v_vapor = 0.0186; // TODO: add temperature dependence
-          double H_vap = 40.657/1000.0; // J/mol TODO: add temperature dependence
-          double H_sub = 51.08/1000.0; // J/mol TODO: add temperature dependence
+          //double Tmelt = 273.15;
+          //double ptriple = 611.657;
+          //double v_vapor = 0.0186; // TODO: add temperature dependence
+          //double H_vap = 40.657/1000.0; // J/mol TODO: add temperature dependence
+          //double H_sub = 51.08/1000.0; // J/mol TODO: add temperature dependence
 
           // determine vaporization temperature from Clausius-Clareyon
-          double Tvap = (1.0/273.15) - log(psat/ptriple)*v_vapor/H_vap;
+          //double Tvap = (1.0/273.15) - log(psat/ptriple)*v_vapor/H_vap;
 
           // determine sublimzation temperature from CC
-          double Tsub = (1.0/273.15) - log(psat/ptriple)*v_vapor/H_sub;
+          //double Tsub = (1.0/273.15) - log(psat/ptriple)*v_vapor/H_sub;
 
           // mass lost based on Hertz-Knudsen formular
           // assume max evaporation rate
-          double m_h20 = 3e-26; // kg
+          //double m_h20 = 3e-26; // kg
 
           /*double flux = 0;
           if (p < ptriple && T > T_sub) { // sublimates
@@ -475,9 +491,8 @@ void FixSolid::update_particle()
             flux += 
           }*/
 
-          double flux = 0.0;
           // (1/A) (1/s)
-          if (T > T_sub) flux = (psat - p)/sqrt(2.0*3.14159*m_h2o*update->boltz*Tp);
+          //if (T > T_sub) flux = (psat - p)/sqrt(2.0*3.14159*m_h2o*update->boltz*Tp);
 
           // magnus
           // double psat = (610.94) * exp(-(6147.667/Tp));          
@@ -493,7 +508,7 @@ void FixSolid::update_particle()
           //double flux = (psat - p)/sqrt(2.0*3.14159*m_h2o*update->boltz*Tp);
 
           // does it sublimate?
-          if (flux > 0) {
+          /*if (flux > 0) {
             double area = 3.14159*4.0*Rp*Rp;
             double mloss = flux * area * rho_solid * update->dt;
 
@@ -503,9 +518,9 @@ void FixSolid::update_particle()
             // recalculate radius
             double vol = mp/srho;
             Rp = pow(vol*0.75/3.14159,1./3.);
-          }
+          }*/
 
-        }
+        } else Tp_new =  Tp + qin*update->dt/csp/mp;
 
         // stpre new particle temp
         solid_array[ip][2] = Tp_new;
