@@ -366,9 +366,9 @@ void FixSolid::update_particle()
   // particle related
 
   double v[3],cx,cy,cz,csq;
-  double Rp,phi_s,phi_l,csp;
+  double Rp,phi_s,phi_l,Tp,csp;
   double mp, mp_s, mp_l;
-  double Tp,Tp_new;
+  double Tp_new,Rp_new;
   double Q,mp_loss,rho,new_vol;
 
   int nsolid;
@@ -396,9 +396,8 @@ void FixSolid::update_particle()
         csp = phi_s*cp_solid + phi_l*cp_liquid;
 
         Vp = 4./3.*3.14159*pow(Rp,3.0);
-        mp_l = Vp*(phi_s*rho_solid + phi_l*rho_liquid);
-        mp_s = Vp*(phi_s*rho_solid + phi_l*rho_liquid);
-        mp = mp_s + mp_l;
+        //mp = Vp*(phi_s*rho_solid + phi_l*rho_liquid);
+        mp = Vp*rho_solid;
 
         // velocities
         for (int d = 0; d < dim; d++)
@@ -407,33 +406,18 @@ void FixSolid::update_particle()
         // temperature
         qin = solid_force[ip][3];
 
-        // update radius and mass (TODO: add later)
+        // only assume particle can sublimate
+        // TODO: Account for liquid phase
 
         if (phase_flag) {
           error->one(FLERR,"should not be here");
 
-          // account for liquid phase solidfying
-          /*if (Tp_new < 273.15) {
-            double H_fusion = 6.01/1000; // [kJ/mol] - same for H_solid
-            double E_solid = H_fusion*(mp_l);
-            double Ap = 4.0*3.14159*pow(Rp,2.0);
-            double E_q = abs(solid_force[ip][3])*Ap*update->dt;
-            if (E_solid < E_q) { // excess energy 
-
-            } else {
-              double dE = E_solid - E_q;
-              double remain_l = dE / H_fusion;
-              phi_s = 
-          
-          }*/
-
-
           // First, determine saturation pressure
 
           // grab pressure in cell
-          double p; // pressure
-          if (pwhich == PZERO) p = 0;
-          //else if (pwhich == COMPUTE)
+          double p = 0; // pressure
+          // TODO : Add compute option
+          //if (pwhich == COMPUTE)
 
           // use updated temp
           double T_degC = Tp - 273.15;
@@ -445,9 +429,9 @@ void FixSolid::update_particle()
           // if T_degC < 0, cannot be liquid
           // if T_degC > 0, cannot be solid
           double psat;
-          if (T_degC > 0) { // water
+          if (T_degC > 0) { // water -> vapor
             psat = exp(34.494 - (4924.99)/(T_degC+273.1))/pow(T_degC+105,1.57);
-          } else { // ice
+          } else { // ice -> vapor
             psat = exp(43.494 - (6545.8)/(T_degC+278))/pow(T_degC+868,2.0);
           }
 
@@ -455,9 +439,15 @@ void FixSolid::update_particle()
           double flux = (psat - p)/sqrt(2.0*3.14159*m_h2o*update->boltz*Tp);
           if (flux < 0) flux = 0.0;
 
-          // determine net heat flux
+          // determine mass lost and update radius
           double area = 3.14159*4.0*Rp*Rp;
           double mass_loss = flux * area * rho_solid * update->dt;
+          mp = mp - mass_loss;
+
+          // new particle size
+          Rp_new = pow( (mp/rho_solid)*0.75/3.14159 ,1.0/3.0)
+
+          double H_sub = 51.08/1000.0; // J/mol
           double qflux = mass_loss * H_sub;
           double qnet = qin - qflux;
 
@@ -520,15 +510,19 @@ void FixSolid::update_particle()
             Rp = pow(vol*0.75/3.14159,1./3.);
           }*/
 
-        } else Tp_new =  Tp + qin*update->dt/csp/mp;
+        } else {
+          Tp_new =  Tp + qin*update->dt/csp/mp;
+          Rp_new = Rp;
+        }
 
         // stpre new particle temp
+        solid_array[ip][1] = Rp_new;
         solid_array[ip][2] = Tp_new;
-        solid_array[ip][3] = phi_s;
+        //solid_array[ip][3] = phi_s;
 
         // update per-grid forces for outputting
 
-        array_grid[icell][0] += Rp;
+        array_grid[icell][0] += Rp_new;
         array_grid[icell][1] += mp;
         array_grid[icell][2] += Tp_new;
         array_grid[icell][3] += solid_force[ip][0];
