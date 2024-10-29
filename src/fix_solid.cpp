@@ -439,7 +439,10 @@ void FixSolid::update_particle()
           double flux = (psat - p)/sqrt(2.0*3.14159*m_h2o*update->boltz*Tp);
           if (flux < 0) flux = 0.0;
 
-          // determine mass lost and update radius
+          // determine mass lost and update radius based on
+          // ... Hertz Knudsen Equation
+          // ref: Kossacki and Leliwa-Kopystynski (2014) Icarus
+          // if sublimation rate is "slow", then can use current surface area
           double area = 3.14159*4.0*Rp*Rp;
           double mass_loss = flux * area * rho_solid * update->dt;
           mp = mp - mass_loss;
