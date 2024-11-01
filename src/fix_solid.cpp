@@ -39,7 +39,7 @@ enum{NOFORCE,GREEN,BURT,LOTH,SINGH};            // type of solid particle force
 // for compute_solid_grid
 
 enum{SIZE,MASS,TEMP,FORCEX,FORCEY,FORCEZ,HEAT};
-enum{PZERO,COMPUTE,FIX};
+enum{PZERO,AVERAGE};
 
 #define DELTADELETE 1024
 
@@ -96,89 +96,16 @@ FixSolid::FixSolid(SPARTA *sparta, int narg, char **arg) :
   while (iarg < narg) {
     // to model particle mass loss
     if (strcmp(arg[iarg],"reduce") == 0) {
-      if (iarg+3 > narg) error->all(FLERR,"Invalid fix solid command");
+      if (iarg+2 > narg) error->all(FLERR,"Invalid fix solid command");
       phase_flag = 1;
-
-      // grab idsource from fix or compute (character between '[' and ']')
-      int n = strlen(arg[iarg+1]);
-      char *suffix = new char[n];
-      strcpy(suffix,&arg[iarg+1][2]);
-
-      // check if there the fix/compute points to certain index
-      int argindex = 0;
-      char *ptr = strchr(suffix,'[');
-      if (ptr) {
-        if (suffix[strlen(suffix)-1] != ']')
-          error->all(FLERR,"Illegal fix ablate command");
-        argindex = atoi(ptr+1);
-        *ptr = '\0';
-      }
-
-      n = strlen(suffix) + 1;
-      char *idsource = new char[n];
-      strcpy(idsource,suffix);
-      delete [] suffix;
-
-      // find compute and check if it is valid
-      if(strncmp(arg[iarg+1],"c_",2 == 0)) {
-        pwhich = COMPUTE;
-
-        ifc = modify->find_compute(idsource);
-        if (ifc < 0) // does compute exist?
-          error->all(FLERR,"Compute or fix ID for fix solid does not exist");
-        // does compute have per-grid values?
-        if (modify->compute[ifc]->per_grid_flag == 0)
-          error->all(FLERR,
-                     "Fix solid compute does not calculate per-grid values");
-        // if compute does not reference certain index, is it a 1xN vector?
-        if (argindex == 0 &&
-            modify->compute[ifc]->size_per_grid_cols != 0)
-          error->all(FLERR,"Fix solid compute does not "
-                     "calculate per-grid vector");
-        // if compute index specified, is there at least one value per grid?
-        if (argindex && modify->compute[ifc]->size_per_grid_cols == 0)
-          error->all(FLERR,"Fix solid compute does not "
-                     "calculate per-grid array");
-        // if compute index specified, is index within range?
-        if (argindex && argindex > modify->compute[ifc]->size_per_grid_cols)
-          error->all(FLERR,"Fix solid compute array is accessed out-of-range");
-
-      // find fix and check if it is valid
-      } else if (strncmp(arg[iarg+1],"f_",2 == 0)) {
-        pwhich = FIX;
-
-        ifc = modify->find_fix(idsource);
-        if (ifc < 0)
-          error->all(FLERR,"Fix ID for fix solid does not exist");
-        if (modify->fix[ifc]->per_grid_flag == 0)
-          error->all(FLERR,"Fix solid fix does not calculate per-grid values");
-        if (argindex == 0 && modify->fix[ifc]->size_per_grid_cols != 0)
-          error->all(FLERR,
-                     "Fix solid fix does not calculate per-grid vector");
-        if (argindex && modify->fix[ifc]->size_per_grid_cols == 0)
-          error->all(FLERR,
-                     "Fix solid fix does not calculate per-grid array");
-        if (argindex && argindex > modify->fix[ifc]->size_per_grid_cols)
-          error->all(FLERR,"Fix solid fix array is accessed out-of-range");
-        // are intervals for fix and fix solid compatible?
-        if (nevery % modify->fix[ifc]->per_grid_freq)
-          error->all(FLERR,
-                     "Fix for fix solid not computed at compatible time");
-
-      } else pwhich = PZERO;
-
-      iarg += 3;
+      if (strcmp(arg[iarg+1],"zero") == 0) pwhich = PZERO;
+      else if (strcmp(arg[iarg+1],"average") == 0) pwhich = AVERAGE;
+      else error->all(FLERR,"Invalid pressure choice for fix solid command");
+      iarg += 2;
     } else if (strcmp(arg[iarg],"nevery") == 0) { 
       if (iarg+2 > narg) error->all(FLERR,"Invalid fix solid command");
       nevery = atoi(arg[iarg+1]);
       if (nevery <= 0) error->all(FLERR,"Nevery must be greater than zero");
-
-      // check if nevery compatible with pre-defined fixes
-      if (pwhich == FIX)
-        if (nevery % modify->fix[ifc]->per_grid_freq)
-          error->all(FLERR,
-                     "Fix solid nevery not compatible with freq of pre-defined fix");
-
       iarg += 2;
     } else if (strcmp(arg[iarg],"brownian") == 0) {
       if (iarg+1 > narg) error->all(FLERR,"Invalid fix solid command");
@@ -205,7 +132,7 @@ FixSolid::FixSolid(SPARTA *sparta, int narg, char **arg) :
       force_type = BURT;
       alpha = atof(arg[iarg+1]); // tau
       iarg += 2;
-    } else error->all(FLERR,"Invalid fix temp/rescale command");
+    } else error->all(FLERR,"Invalid fix solid command");
   }
 
   // check if custom particle parameters exist
@@ -416,8 +343,7 @@ void FixSolid::update_particle()
 
           // grab pressure in cell
           double p = 0; // pressure
-          // TODO : Add compute option
-          //if (pwhich == COMPUTE)
+          if (pwhich == AVERAGE) solid_bulk[ip][4];
 
           // use updated temp
           double T_degC = Tp - 273.15;
@@ -450,7 +376,7 @@ void FixSolid::update_particle()
           // new particle size
           Rp_new = pow( (mp/rho_solid)*0.75/3.14159 ,1.0/3.0)
 
-          double H_sub = 51.08/1000.0; // J/mol
+          double H_sub = 51.08/1000.0; // J/mol (temperature independent)
           double qflux = mass_loss * H_sub;
           double qnet = qin - qflux;
 
