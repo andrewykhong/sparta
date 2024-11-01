@@ -12,6 +12,7 @@
    See the README file in the top-level SPARTA directory.
 ------------------------------------------------------------------------- */
 
+#include "domain.h"
 #include "math.h"
 #include "math_extra.h"
 #include "math_eigen.h"
@@ -61,6 +62,7 @@ void Collide::collisions_one_sw()
   int *next = particle->next;
 
   double isw;
+  double level, cell_scale;
 
   for (int icell = 0; icell < nglocal; icell++) {
     np = cinfo[icell].count;
@@ -99,11 +101,17 @@ void Collide::collisions_one_sw()
     }
     sweight_max *= update->fnum;
 
+    // scale max in cell count with cell level
+    level = cells[icell].level;
+    if (level == 0) cell_scale = 1.0;
+    else if (domain->dimension == 2) cell_scale = pow(4,level);
+    else cell_scale = pow(8,level);
+
     // attempt = exact collision attempt count for all particles in cell
     // nattempt = rounded attempt with RN
     // if no attempts, continue to next grid cell
 
-    if (np >= Ncmin && Ncmin > 0.0) pre_wtf = 0.0;
+    if (np >= Ncmin*cell_scale && Ncmin > 0.0) pre_wtf = 0.0;
     else pre_wtf = 1.0;
 
     attempt = attempt_collision(icell,np,volume);
@@ -163,9 +171,205 @@ void Collide::collisions_one_sw()
 
   // remove tiny weighted particles
 
-  remove_tiny();
+  if (remove_min_flag) remove_tiny();
 
   return;
+}
+
+/* ----------------------------------------------------------------------
+   Stochastic weighted algorithm (mixtures)
+------------------------------------------------------------------------- */
+
+void Collide::collisions_group_sw()
+{
+  int i,j,n,ip,np,newp;
+  int isp,ipair,igroup,jgroup,newgroup,ngmax;
+  int ng,ii,jj;
+  int *ni,*nj,*ilist,*jlist;
+  int nattempt;
+  double attempt,volume;
+  Particle::OnePart *ipart,*jpart,*kpart,*lpart,*mpart;
+
+  // loop over cells I own
+
+  Grid::ChildInfo *cinfo = grid->cinfo;
+  Grid::ChildCell *cells = grid->cells;
+
+  Particle::OnePart *particles = particle->particles;
+  int *next = particle->next;
+  int *species2group = mixture->species2group;
+
+  double isw;
+  double sw_max_spec[ngroups];
+  double level, cell_scale;
+
+  for (int icell = 0; icell < nglocal; icell++) {
+    np = cinfo[icell].count;
+    if (np <= 1) continue;
+    ip = cinfo[icell].first;
+    volume = cinfo[icell].volume / cinfo[icell].weight;
+    if (volume == 0.0) error->one(FLERR,"Collision cell volume is zero");
+
+    // reallocate plist and p2g if necessary
+
+    if (np > npmax) {
+      while (np > npmax) npmax += DELTAPART;
+      memory->destroy(plist);
+      memory->create(plist,npmax,"collide:plist");
+      memory->destroy(p2g);
+      memory->create(p2g,npmax,2,"collide:p2g");
+    }
+
+    for (i = 0; i < ngroups; i++) {
+      ngroup[i] = 0;
+      sw_max_spec[i] = 0.0;
+    }
+    n = 0;
+
+    // create particle list
+
+    while (ip >= 0) {
+      isp = particles[ip].ispecies;
+
+      // store max weight for each species
+      ipart = &particles[ip];
+      isw = ipart->weight;
+      if (isw != isw) error->all(FLERR,"Particle has NaN weight");
+      if (isw <= 0.0) error->all(FLERR,"Particle has negative or zero weight");
+      sw_max_spec[isp] = MAX(sw_max_spec[isp],isw);
+
+      igroup = species2group[isp];
+      if (ngroup[igroup] == maxgroup[igroup]) {
+        maxgroup[igroup] += DELTAPART;
+        memory->grow(glist[igroup],maxgroup[igroup],"collide:glist");
+      }
+      ng = ngroup[igroup];
+      glist[igroup][ng] = n;
+      p2g[n][0] = igroup;
+      p2g[n][1] = ng;
+      plist[n] = ip;
+      ngroup[igroup]++;
+      n++;
+      ip = next[ip];
+    } // end ip while
+
+    // calculate attempts
+
+    npair = 0;
+    for (igroup = 0; igroup < ngroups; igroup++) {
+      for (jgroup = igroup; jgroup < ngroups; jgroup++) {
+        sweight_max = MAX(sw_max_spec[igroup],sw_max_spec[jgroup]);
+        attempt = attempt_collision(icell,igroup,jgroup,volume);
+        nattempt = static_cast<int> (attempt);
+
+        if (nattempt) {
+          gpair[npair][0] = igroup;
+          gpair[npair][1] = jgroup;
+          gpair[npair][2] = nattempt;
+          nattempt_one += nattempt;
+          npair++;
+        }
+      } // end jgroup
+    } // end igroup
+
+    // iterate thru species pairs
+
+    for (ipair = 0; ipair < npair; ipair++) {
+      igroup = gpair[ipair][0];
+      jgroup = gpair[ipair][1];
+      nattempt = gpair[ipair][2];
+
+      ni = &ngroup[igroup];
+      nj = &ngroup[jgroup];
+      ilist = glist[igroup];
+      jlist = glist[jgroup];
+
+      if (*ni == 0 || *nj == 0) continue;
+      if (igroup == jgroup && *ni == 1) continue;
+
+      sweight_max = MAX(sw_max_spec[igroup],sw_max_spec[jgroup]);
+      for (int iattempt = 0; iattempt < nattempt; iattempt++) {
+
+        i = *ni * random->uniform();
+        j = *nj * random->uniform();
+        if (igroup == jgroup)
+          while (i == j) j = *nj * random->uniform();
+
+        ipart = &particles[plist[ilist[i]]];
+        jpart = &particles[plist[jlist[j]]];
+
+        // test if collision actually occurs
+        // continue to next collision if no reaction
+
+        if (!test_collision(icell,igroup,jgroup,ipart,jpart)) continue;
+
+        // split particles
+
+        newp = split(ipart,jpart,kpart,lpart);
+
+        // add new particles to particle list
+
+        if (newp > 1) {
+          if (np+2 >= npmax) {
+            npmax += DELTAPART;
+            memory->grow(plist,npmax,"collide:plist");
+            memory->grow(p2g,npmax,2,"collide:p2g");
+          }
+
+          plist[np++] = particle->nlocal-2;
+          newgroup = species2group[kpart->ispecies];
+          addgroup(newgroup,np-1);
+          ilist = glist[igroup];
+          jlist = glist[jgroup];
+
+          plist[np++] = particle->nlocal-1;
+          newgroup = species2group[lpart->ispecies];
+          addgroup(newgroup,np-1);
+          ilist = glist[igroup];
+          jlist = glist[jgroup];
+
+          particles = particle->particles;
+        } else if (newp > 0) {
+          if (np+1 >= npmax) {
+            npmax += DELTAPART;
+            memory->grow(plist,npmax,"collide:plist");
+            memory->grow(p2g,npmax,2,"collide:p2g");
+          }
+
+          plist[np++] = particle->nlocal-1;
+          newgroup = species2group[kpart->ispecies];
+          addgroup(newgroup,np-1);
+          ilist = glist[igroup];
+          jlist = glist[jgroup];
+
+          particles = particle->particles;
+        }
+
+        // since ipart and jpart have same weight, do not need
+        // ... to account for weight during collision itself
+        // also the splits are all handled beforehand
+
+        mpart = NULL; // dummy particle
+        setup_collision(ipart,jpart);
+        perform_collision(ipart,jpart,mpart);
+        ncollide_one++;
+
+        // test to exit attempt loop due to groups becoming too small
+
+        if (*ni <= 1) {
+          if (*ni == 0) break;
+          if (igroup == jgroup) break;
+        }
+        if (*nj <= 1) {
+          if (*nj == 0) break;
+          if (igroup == jgroup) break;
+        }
+
+      } // end attempts
+    } // end species pairs
+
+  } // end cells
+
 }
 
 /* ----------------------------------------------------------------------
@@ -327,11 +531,21 @@ void Collide::group_reduce()
   double d1, d2;
   double lLim, uLim;
   int npL, npLU;
+  double level, cell_scale, Ncmax_scale;
+  int total_iter;
 
   for (int icell = 0; icell < nglocal; icell++) {
     np = cinfo[icell].count;
 
-    if (np <= Ncmax) continue;
+    // scale max in cell count with cell level
+    level = cells[icell].level;
+    if (level == 0) cell_scale = 1.0;
+    else if (domain->dimension == 2) cell_scale = pow(4,level);
+    else cell_scale = pow(8,level);
+
+    // upper bound to two times the max group size
+    Ncmax_scale = MAX(1.5*Ngmax,Ncmax/cell_scale);
+    if (np <= Ncmax_scale) continue;
 
     // create particle list
 
@@ -345,60 +559,11 @@ void Collide::group_reduce()
     }
 
     gbuf = 0;
-
-    while (n > Ncmax) {
+    total_iter = 0;
+    while (n > Ncmax_scale) {
+      if (total_iter > 10) break;
       nold = n;
-
-      // seems to be more stable than weighted
-
-      if (group_type == BINARY) {
-        group_bt(plist,n);
-      } else if (group_type == WEIGHT) {
-
-        // find mean / standard deviation of weight
-
-        ip = cinfo[icell].first;
-        n = 0;
-        swmean = swvar = 0.0;
-        while (ip >= 0) {
-          ipart = &particles[ip];
-          isw = ipart->weight;
-
-          // Incremental variance
-
-          if(isw > 0) {
-            n++;
-            d1 = isw - swmean;
-            swmean += (d1/n);
-            swvar += (n-1.0)/n*d1*d1;
-          }
-          ip = next[ip];
-        }
-        swstd = sqrt(swvar/n);
-
-        // weight limits to separate particles
-
-        lLim = MAX(swmean-1.25*swstd,0);
-        uLim = swmean+2.0*swstd;
-
-        // recreate particle list and omit large weighted particles
-
-        ip = cinfo[icell].first;
-        npL = npLU = 0;
-        while (ip >= 0) {
-          ipart = &particles[ip];
-          isw = ipart->weight;
-          if(isw > 0 && isw < lLim) pL[npL++] = ip;
-          else if(isw >= lLim && isw < uLim) pLU[npLU++] = ip;
-          ip = next[ip];
-        }
-
-        // can reuse binary tree division here
-
-        group_bt(pL,  npL);
-        group_bt(pLU, npLU);
-
-      }
+      group_bt(plist,n);
 
       // recreate particle list after reduction
 
@@ -412,9 +577,15 @@ void Collide::group_reduce()
       }
 
       // if no particles reduced, increase group size
+      // if less than 20% particles reduced, increase group size
       
-      if (n == nold) gbuf += 2;
-      if (gbuf > n) break;
+      if (n == nold || n/nold < 0.20) gbuf += 1;
+
+      // keep group size upper boudned to prevent infinite loop
+
+      if (gbuf >= Ngmax) break;
+
+      total_iter++;
 
     } // while loop for n > ncmax
   }// loop for cells
@@ -452,7 +623,7 @@ void Collide::group_bt(int *plist_leaf, int np)
 
   int ispecies;
 	double mass, psw, pmsw, vp[3];
-  double Erot;
+  double Erot = 0.0;
   for (int p = 0; p < np; p++) {
     ipart = &particles[plist_leaf[p]];
     ispecies = ipart->ispecies;
@@ -628,8 +799,8 @@ void Collide::reduce(int *pleaf, int np,
 
   // set reduced particle rotational energies
 
-  ipart->erot = Erot/(rho*0.5)*0.5;
-  jpart->erot = Erot/(rho*0.5)*0.5;
+  ipart->erot = Erot/rho;
+  jpart->erot = Erot/rho;
 
   // set reduced particle weights
 
@@ -708,8 +879,8 @@ void Collide::reduce(int *pleaf, int np,
 
   // set reduced particle rotational energies
 
-  ipart->erot = Erot/isw*0.5;
-  jpart->erot = Erot/jsw*0.5;
+  ipart->erot = Erot/rho;
+  jpart->erot = Erot/rho;
 
   ipart->weight = isw;
   jpart->weight = jsw;
@@ -791,8 +962,8 @@ void Collide::reduce(int *pleaf, int np,
 
     // set reduced particle rotational energies
 
-    ipart->erot = Erot/isw*0.5/nK;
-    jpart->erot = Erot/jsw*0.5/nK;
+    ipart->erot = Erot/rho/nK;
+    jpart->erot = Erot/rho/nK;
 
     ipart->weight = isw;
     jpart->weight = jsw;
@@ -847,7 +1018,7 @@ void Collide::remove_tiny()
 
     ip = cinfo[icell].first;
     while (ip >= 0) {
-      if (isw < sw_mean*1e-5) {
+      if (isw < sw_mean*min_weight) {
         if (ndelete == maxdelete) {
           maxdelete += DELTADELETE;
           memory->grow(dellist,maxdelete,"collide:dellist");

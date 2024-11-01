@@ -145,6 +145,10 @@ class Collide : protected Pointers {
 
   int *pL, *pLU;
 
+  // for removing tiny weighted particles
+  int remove_min_flag;
+  double min_weight;
+
   // inline functions
   // add particle N to Igroup and set its g2p entry in plist to K
   // delete Ith entry in Igroup and reset g2p entries as well
@@ -179,6 +183,7 @@ class Collide : protected Pointers {
   void collisions_one_ambipolar();
   void collisions_group_ambipolar();
   void collisions_one_sw();
+  void collisions_group_sw();
   void ambi_reset(int, int, int, Particle::OnePart *, Particle::OnePart *,
                   Particle::OnePart *, int *);
   void ambi_check();

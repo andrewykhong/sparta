@@ -359,6 +359,8 @@ void Collide::modify_params(int narg, char **arg)
 {
   if (narg == 0) error->all(FLERR,"Illegal collide_modify command");
 
+  remove_min_flag = 0;
+
   int iarg = 0;
   while (iarg < narg) {
     if (strcmp(arg[iarg],"vremax") == 0) {
@@ -420,6 +422,14 @@ void Collide::modify_params(int narg, char **arg)
       wtf = atof(arg[iarg+3]);
       if (wtf < 0) error->all(FLERR,"Illegal collide_modify command");
       iarg += 4;
+    } else if (strcmp(arg[iarg],"notiny") == 0) {
+      remove_min_flag = 1;
+      if (iarg+2 > narg) error->all(FLERR,"Illegal collide_modify command");
+      else error->all(FLERR,"Illegal collide_modify command");
+      min_weight = atof(arg[iarg+1]);
+      if (min_weight < 0)
+        error->all(FLERR,"Minimum weight must be a non-zero value");
+      iarg += 2;
     } else if (strcmp(arg[iarg],"reduce") == 0) {
       if (!swpmflag) error->all(FLERR,"Must have swpm enabled first");
       if (iarg+5 > narg) error->all(FLERR,"Illegal collide_modify command");
@@ -481,7 +491,8 @@ void Collide::collisions()
   // variant for stochastic weighted collisions or not
 
   if (swpmflag) {
-    collisions_one_sw();
+    if (ngroups == 1) collisions_one_sw();
+    else collisions_group_sw();
     particle->sort();
     if (reduceflag) group_reduce();
   } else if (!ambiflag) {
