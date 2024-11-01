@@ -272,6 +272,7 @@ void Update::setup()
 void Update::run(int nsteps)
 {
   int n_start_of_step = modify->n_start_of_step;
+  int n_mid_step = modify->n_mid_step;
   int n_end_of_step = modify->n_end_of_step;
 
   // external per grid cell field
@@ -324,6 +325,13 @@ void Update::run(int nsteps)
     comm->migrate_particles(nmigrate,mlist);
     if (cellweightflag) particle->post_weight();
     timer->stamp(TIME_COMM);
+
+    // mid step fixes
+
+    if (n_mid_step) {
+      modify->mid_step();
+      timer->stamp(TIME_MODIFY);
+    }
 
     if (collide) {
       particle->sort();

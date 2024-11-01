@@ -62,7 +62,7 @@ class Fix : protected Pointers {
   int per_grid_field;            // 0/1 if produces per-grid external field
   int field_active[3];           // 0/1 for active x,y,z components of ext field
 
-  int START_OF_STEP,END_OF_STEP,POST_RUN;    // mask settings
+  int START_OF_STEP,MID_STEP,END_OF_STEP,POST_RUN,MID_STEP;    // mask settings
 
   int kokkos_flag;              // 0/1 if Kokkos fix
   int copy,uncopy,copymode;     // used by Kokkos, prevent deallocation of
@@ -80,6 +80,7 @@ class Fix : protected Pointers {
   virtual void setup() {}
 
   virtual void start_of_step() {}
+  virtual void mid_step() {}
   virtual void end_of_step() {}
   virtual void post_run() {}
   virtual void update_custom(int, double, double, double, double *) {}
