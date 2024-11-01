@@ -56,8 +56,8 @@ Fix::Fix(SPARTA *sparta, int, char **arg) : Pointers(sparta)
 
   START_OF_STEP = 1;
   END_OF_STEP = 2;
-  POST_RUN = 3;
-  MID_STEP = 4;
+  POST_RUN = 4;
+  MID_STEP = 8;
 
   kokkos_flag = 0;
   copy = uncopy = copymode = 0;

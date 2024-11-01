@@ -32,8 +32,8 @@ using namespace SPARTA_NS;
 
 #define START_OF_STEP  1
 #define END_OF_STEP    2
-#define POST_RUN       3
-#define MID_STEP       4
+#define POST_RUN       4
+#define MID_STEP       8
 
 /* ---------------------------------------------------------------------- */
 
@@ -152,7 +152,7 @@ void Modify::start_of_step()
 }
 
 /* ----------------------------------------------------------------------
-   start-of-timestep call, only for relevant fixes
+   mid-step call, only for relevant fixes
 ------------------------------------------------------------------------- */
 
 void Modify::mid_step()

@@ -37,6 +37,7 @@ class Modify : protected Pointers {
   void init();
   void setup();
   virtual void start_of_step();
+  virtual void mid_step();
   virtual void end_of_step();
   virtual void post_run();
 
