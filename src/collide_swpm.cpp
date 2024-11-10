@@ -703,12 +703,6 @@ void Collide::group_bt(int *plist_leaf, int np)
       q[i] = (h + h1 + h2) * 0.5;
     }
 
-    // negative temp from big difference in particle weights
-    if (T < 0) {
-      T = 0.0;
-      q[0] = q[1] = q[2] = 0.0;
-    }
-
     // scale values to be consistent with definitions in
     // .. stochastic numerics book
 
@@ -836,6 +830,17 @@ void Collide::reduce(int *pleaf, int np,
   ipart->weight = rho*0.5;
   jpart->weight = rho*0.5;
 
+  // if there is bad weight, only create one and clone
+
+  if (T <= 0) {
+    printf("bad temp\n");
+    // set velocities to mean
+    for (int d = 0; d < 3; d++) {
+      ipart->v[d] = V[d];
+      jpart->v[d] = V[d];
+    }
+  }
+
   // delete other particles
 
   for (int i = 0; i < np; i++) {
@@ -911,13 +916,24 @@ void Collide::reduce(int *pleaf, int np,
   ipart->erot = Erot/rho;
   jpart->erot = Erot/rho;
 
-  ipart->weight = isw;
-  jpart->weight = jsw;
+  // if there is bad weight, only create one and clone
 
-  if (isw != isw || isw <= 0.0 || jsw != jsw || jsw <= 0.0)
-    error->one(FLERR,"bad weight");
+  if (isw != isw || isw <= 0.0 || jsw != jsw || jsw <= 0.0) {
+    printf("bad weight\n");
+    ipart->weight = rho*0.5;
+    jpart->weight = rho*0.5;
+    // set velocities to mean
+    for (int d = 0; d < 3; d++) {
+      ipart->v[d] = V[d];
+      jpart->v[d] = V[d];
+    }
+  } else {
+    ipart->weight = isw;
+    jpart->weight = jsw;
+  }
 
   // delete other particles
+
   for (int i = 0; i < np; i++) {
     if (i == ip || i == jp) continue;
     if (ndelete == maxdelete) {
@@ -1001,15 +1017,27 @@ void Collide::reduce(int *pleaf, int np,
     isw = rho/(nK*(1.0+itheta*itheta));
     jsw = rho/nK - isw;
 
+    // if there is bad weight, only create one and clone
+
+    if (isw != isw || isw <= 0.0 || jsw != jsw || jsw <= 0.0) {
+      printf("bad weight\n");
+      ipart->weight = rho*0.5/update->fnum;
+      jpart->weight = rho*0.5/update->fnum;
+      // set velocities to mean
+      for (int d = 0; d < 3; d++) {
+        ipart->v[d] = V[d];
+        jpart->v[d] = V[d];
+      }
+    } else {
+      ipart->weight = isw/update->fnum;
+      jpart->weight = jsw/update->fnum;
+    }
+
     // set reduced particle rotational energies
 
     ipart->erot = Erot/rho/nK;
     jpart->erot = Erot/rho/nK;
 
-    // scale back weights
-
-    ipart->weight = isw/update->fnum;
-    jpart->weight = jsw/update->fnum;
 
   } // end nK
   
