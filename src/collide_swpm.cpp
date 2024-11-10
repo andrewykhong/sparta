@@ -62,8 +62,10 @@ void Collide::collisions_one_sw()
   int *next = particle->next;
 
   double isw;
-  double level, cell_scale;
+  int level;
+  double cell_scale;
 
+  //if (comm->me == 6) printf("c: %i -- begin collision loop \n", comm->me);
   for (int icell = 0; icell < nglocal; icell++) {
     np = cinfo[icell].count;
     if (np <= 1) continue;
@@ -83,29 +85,48 @@ void Collide::collisions_one_sw()
 
     // build particle list and find maximum particle weight
     // particle weights are relative to update->fnum
-
+    //if (comm->me == 6 && icell == 4752596) printf("build plist - %i\n", icell);
     ip = cinfo[icell].first;
     n = 0;
     sweight_max = 0.0;
     while (ip >= 0) {
       plist[n++] = ip;
-
+      //if (comm->me == 6 && icell == 4752596)
+      //  printf("%i -- %i - %i\n", ip, n, np);
       ipart = &particles[ip];
+      //if (comm->me == 6 && icell == 4752596)
+      //  printf("grab part\n");
       isw = ipart->weight;
-
+      //if (comm->me == 6 && icell == 4752596)
+      //  printf("grab weight\n");
       sweight_max = MAX(sweight_max,isw);
+      //if (comm->me == 6 && icell == 4752596)
+      //  printf("set max weight\n");
+      //if (isw != isw) error->all(FLERR,"Particle has NaN weight");
+      //if (isw <= 0.0) error->all(FLERR,"Particle has negative or zero weight");
+      if (isw != isw) {
+        printf("nan weight\n");
+        error->one(FLERR,"Particle has NaN weight");
+      }
+      if (isw <= 0.0) {
+        printf("nan weight\n");
+        error->one(FLERR,"Particle has negative or zero weight");
+      }
 
-      if (isw != isw) error->all(FLERR,"Particle has NaN weight");
-      if (isw <= 0.0) error->all(FLERR,"Particle has negative or zero weight");
+      //if (comm->me == 6 && icell == 4752596)
+      //  printf("grab next\n");
       ip = next[ip];
+      //if (comm->me == 6 && icell == 4752596)
+      //  printf("%i\n", ip);
     }
     sweight_max *= update->fnum;
+    //if (comm->me == 6 && icell == 4752596) printf("max g: %4.3e\n", sweight_max);
 
     // scale max in cell count with cell level
     level = cells[icell].level;
-    if (level == 0) cell_scale = 1.0;
-    else if (domain->dimension == 2) cell_scale = pow(4,level);
-    else cell_scale = pow(8,level);
+    if (level == 1) cell_scale = 1.0;
+    else if (domain->dimension == 2) cell_scale = pow(4,level-1);
+    else cell_scale = pow(8,level-1);
 
     // attempt = exact collision attempt count for all particles in cell
     // nattempt = rounded attempt with RN
@@ -116,6 +137,7 @@ void Collide::collisions_one_sw()
 
     attempt = attempt_collision(icell,np,volume);
     nattempt = static_cast<int> (attempt);
+    //if (comm->me == 6 && icell == 4752596) printf("%i - att: %4.3e\n", np, attempt);
 
     if (!nattempt) continue;
     nattempt_one += nattempt;
@@ -168,11 +190,13 @@ void Collide::collisions_one_sw()
 
     } // end attempt loop
   } // loop for cells
+  //if (comm->me == 6) printf("c: %i -- end collision loop \n", comm->me);
 
   // remove tiny weighted particles
 
   if (remove_min_flag) remove_tiny();
 
+  //if (comm->me == 6) printf("c: %i -- end collision \n", comm->me);
   return;
 }
 
@@ -201,7 +225,8 @@ void Collide::collisions_group_sw()
 
   double isw;
   double sw_max_spec[ngroups];
-  double level, cell_scale;
+  int level;
+  double cell_scale;
 
   for (int icell = 0; icell < nglocal; icell++) {
     np = cinfo[icell].count;
@@ -531,7 +556,8 @@ void Collide::group_reduce()
   double d1, d2;
   double lLim, uLim;
   int npL, npLU;
-  double level, cell_scale, Ncmax_scale;
+  int level;
+  double cell_scale, Ncmax_scale;
   int total_iter;
 
   for (int icell = 0; icell < nglocal; icell++) {
@@ -539,12 +565,13 @@ void Collide::group_reduce()
 
     // scale max in cell count with cell level
     level = cells[icell].level;
-    if (level == 0) cell_scale = 1.0;
-    else if (domain->dimension == 2) cell_scale = pow(4,level);
-    else cell_scale = pow(8,level);
+    if (level == 1) cell_scale = 1.0;
+    else if (domain->dimension == 2) cell_scale = pow(4,level-1);
+    else cell_scale = pow(8,level-1);
 
-    // upper bound to two times the max group size
+    // upper bound to 1.5 times the max group size
     Ncmax_scale = MAX(1.5*Ngmax,Ncmax/cell_scale);
+
     if (np <= Ncmax_scale) continue;
 
     // create particle list
@@ -560,8 +587,7 @@ void Collide::group_reduce()
 
     gbuf = 0;
     total_iter = 0;
-    while (n > Ncmax_scale) {
-      if (total_iter > 10) break;
+    while (1) {
       nold = n;
       group_bt(plist,n);
 
@@ -576,16 +602,23 @@ void Collide::group_reduce()
         ip = next[ip];
       }
 
+      if (n < Ncmax_scale) break;
+
       // if no particles reduced, increase group size
       // if less than 20% particles reduced, increase group size
       
       if (n == nold || n/nold < 0.20) gbuf += 1;
 
-      // keep group size upper boudned to prevent infinite loop
+      // only increase buffer up to twice max group size
 
       if (gbuf >= Ngmax) break;
 
       total_iter++;
+
+      //if (total_iter >= 1)
+      //  printf("i: %i; n: %i->%i; Ncmax_scale: %4.1f\n",
+      //    total_iter, nold, n, Ncmax_scale);
+      if (total_iter > 10) break;
 
     } // while loop for n > ncmax
   }// loop for cells
@@ -609,15 +642,21 @@ void Collide::group_bt(int *plist_leaf, int np)
   // compute stress tensor since it's needed for
   // .. further dividing and reduction
 
-  double gsum, msum, mV[3], mVV[3][3], mVVV[3][3];
-  gsum = msum = 0.0;
+  double gsum, msum;
+  double mV[3], mVV[3][3], mVVV[3][3];
+  double count, uV[3], uVV[3][3]; // for unweighted division
+  gsum = msum = count = 0.0;
   for (int i = 0; i < 3; i++) {
     mV[i] = 0.0;
+    uV[i] = 0.0;
     for (int j = 0; j < 3; j++) {
       mVV[i][j] = 0.0;
       mVVV[i][j] = 0.0;
+      uVV[i][j] = 0.0;
     }
   }
+
+
 
   // find maximum particle weight
 
@@ -630,6 +669,7 @@ void Collide::group_bt(int *plist_leaf, int np)
     mass = species[ispecies].mass;
 
     psw = ipart->weight;
+    count += 1;
     pmsw = psw * mass;
     memcpy(vp, ipart->v, 3*sizeof(double));
    	gsum += psw;
@@ -637,9 +677,11 @@ void Collide::group_bt(int *plist_leaf, int np)
     Erot += psw*ipart->erot;
     for (int i = 0; i < 3; i++) {
       mV[i] += (pmsw*vp[i]);
+      uV[i] += vp[i];
       for (int j = 0; j < 3; j++) {
         mVV[i][j] += (pmsw*vp[i]*vp[j]);
         mVVV[i][j] += (pmsw*vp[i]*vp[j]*vp[j]);
+        uVV[i][j] += (vp[i]*vp[j]);
       }
     }
   }
@@ -686,7 +728,14 @@ void Collide::group_bt(int *plist_leaf, int np)
            mV[i]*mVV[i1][i1]/msum + 2.0*mV[i]*mV[i1]*mV[i1]/msum/msum;
       h2 = mVVV[i][i2] - 2.0*mVV[i][i2]*mV[i2]/msum -
            mV[i]*mVV[i2][i2]/msum + 2.0*mV[i]*mV[i2]*mV[i2]/msum/msum;
+      // normalized later in RW reduction (no fnum needed)
       q[i] = (h + h1 + h2) * 0.5;
+    }
+
+    // negative temp from big difference in particle weights
+    if (T < 0) {
+      T = 0.0;
+      q[0] = q[1] = q[2] = 0.0;
     }
 
     // scale values to be consistent with definitions in
@@ -714,9 +763,12 @@ void Collide::group_bt(int *plist_leaf, int np)
     // Compute covariance matrix
 
     double Rij[3][3];
-    for (int i = 0; i < 3; i++)
-      for (int j = 0; j < 3; j++)
-        Rij[i][j] = pij[i][j]/gsum;
+    for (int i = 0; i < 3; i++) {
+      for (int j = 0; j < 3; j++) {
+        if (weighted) Rij[i][j] = pij[i][j]/gsum;
+        else Rij[i][j] = uVV[i][j] - uV[i]*uV[j]/count;
+      }
+    }
 
     // Find eigenpairs
 
@@ -740,6 +792,9 @@ void Collide::group_bt(int *plist_leaf, int np)
 
     // Separate based on particle velocity
 
+    if (!weighted)
+      for (int i = 0; i < 3; i++) V[i] = uV[i]/count;
+
     double center = V[0]*maxevec[0] + V[1]*maxevec[1] + V[2]*maxevec[2];
     int pid, pidL[np], pidR[np];
     int npL, npR;
@@ -752,6 +807,9 @@ void Collide::group_bt(int *plist_leaf, int np)
       else
         pidR[npR++] = pid;
     }
+
+    if(npL < 1) error->all(FLERR,"No particles in left group");
+    if(npR < 1) error->all(FLERR,"No particles in right group");
 
     if(npL > Ngmin) group_bt(pidL,npL);
     if(npR > Ngmin) group_bt(pidR,npR);
@@ -799,8 +857,8 @@ void Collide::reduce(int *pleaf, int np,
 
   // set reduced particle rotational energies
 
-  ipart->erot = Erot/rho;
-  jpart->erot = Erot/rho;
+  ipart->erot = Erot;
+  jpart->erot = Erot;
 
   // set reduced particle weights
 
@@ -879,11 +937,14 @@ void Collide::reduce(int *pleaf, int np,
 
   // set reduced particle rotational energies
 
-  ipart->erot = Erot/rho;
-  jpart->erot = Erot/rho;
+  ipart->erot = Erot;
+  jpart->erot = Erot;
 
   ipart->weight = isw;
   jpart->weight = jsw;
+
+  if (isw != isw || isw <= 0.0 || jsw != jsw || jsw <= 0.0)
+    error->one(FLERR,"bad weight");
 
   // delete other particles
   for (int i = 0; i < np; i++) {
@@ -907,6 +968,15 @@ void Collide::reduce(int *pleaf, int np,
                      double rho, double *V, double T, double Erot,
                      double *q, double pij[3][3])
 {
+
+  // scale by fnum
+  rho *= update->fnum;
+  Erot *= update->fnum;
+  for (int i = 0; i < 3; i++) {
+    q[i] *= update->fnum;
+    for (int j = 0; j < 3; j++)
+      pij[i][j] *= update->fnum;
+  }
 
   // find eigenpairs of stress tensor
 
@@ -962,11 +1032,13 @@ void Collide::reduce(int *pleaf, int np,
 
     // set reduced particle rotational energies
 
-    ipart->erot = Erot/rho/nK;
-    jpart->erot = Erot/rho/nK;
+    ipart->erot = Erot/nK;
+    jpart->erot = Erot/nK;
 
-    ipart->weight = isw;
-    jpart->weight = jsw;
+    // scale back weights
+
+    ipart->weight = isw/update->fnum;
+    jpart->weight = jsw/update->fnum;
 
   } // end nK
   
@@ -991,7 +1063,7 @@ void Collide::reduce(int *pleaf, int np,
 void Collide::remove_tiny()
 {
   int np, ip, n;
-  double isw, sw_mean;
+  double isw, sw_max;
   Grid::ChildInfo *cinfo = grid->cinfo;
   int *next = particle->next;
 
@@ -1003,22 +1075,20 @@ void Collide::remove_tiny()
 
     ip = cinfo[icell].first;
     n = 0;
-    sw_mean = 0.0;
+    sw_max = 0.0;
     while (ip >= 0) {
       ipart = &particles[ip];
       isw = ipart->weight;
-      if (isw > 0) sw_mean += isw;
+      if (isw > 0) sw_max = MAX(sw_max,isw);
       ip = next[ip];
       n++;
     }
-
-    sw_mean /= n;
 
     // delete tiny weights
 
     ip = cinfo[icell].first;
     while (ip >= 0) {
-      if (isw < sw_mean*min_weight) {
+      if (isw < sw_max*min_weight) {
         if (ndelete == maxdelete) {
           maxdelete += DELTADELETE;
           memory->grow(dellist,maxdelete,"collide:dellist");

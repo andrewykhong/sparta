@@ -140,8 +140,9 @@ class Collide : protected Pointers {
   double pre_wtf;       // scale weight transfer function
 
   int reduceflag;      // 1 if particles can reduce
-  int reduction_type;   // type of particle reduction to use
-  int group_type;       // type of grouping
+  int reduction_type;  // type of particle reduction to use
+  int group_type;      // type of grouping
+  int weighted;        // weighted grouping or no
 
   int *pL, *pLU;
 
