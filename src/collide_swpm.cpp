@@ -85,42 +85,21 @@ void Collide::collisions_one_sw()
 
     // build particle list and find maximum particle weight
     // particle weights are relative to update->fnum
-    //if (comm->me == 6 && icell == 4752596) printf("build plist - %i\n", icell);
+
     ip = cinfo[icell].first;
     n = 0;
     sweight_max = 0.0;
     while (ip >= 0) {
       plist[n++] = ip;
-      //if (comm->me == 6 && icell == 4752596)
-      //  printf("%i -- %i - %i\n", ip, n, np);
       ipart = &particles[ip];
-      //if (comm->me == 6 && icell == 4752596)
-      //  printf("grab part\n");
       isw = ipart->weight;
-      //if (comm->me == 6 && icell == 4752596)
-      //  printf("grab weight\n");
       sweight_max = MAX(sweight_max,isw);
-      //if (comm->me == 6 && icell == 4752596)
-      //  printf("set max weight\n");
-      //if (isw != isw) error->all(FLERR,"Particle has NaN weight");
-      //if (isw <= 0.0) error->all(FLERR,"Particle has negative or zero weight");
-      if (isw != isw) {
-        printf("nan weight\n");
-        error->one(FLERR,"Particle has NaN weight");
-      }
-      if (isw <= 0.0) {
-        printf("nan weight\n");
-        error->one(FLERR,"Particle has negative or zero weight");
-      }
+      if (isw != isw) error->one(FLERR,"Particle has NaN weight");
+      if (isw <= 0.0) error->one(FLERR,"Particle has negative or zero weight");
 
-      //if (comm->me == 6 && icell == 4752596)
-      //  printf("grab next\n");
       ip = next[ip];
-      //if (comm->me == 6 && icell == 4752596)
-      //  printf("%i\n", ip);
     }
     sweight_max *= update->fnum;
-    //if (comm->me == 6 && icell == 4752596) printf("max g: %4.3e\n", sweight_max);
 
     // scale max in cell count with cell level
     level = cells[icell].level;
@@ -137,7 +116,6 @@ void Collide::collisions_one_sw()
 
     attempt = attempt_collision(icell,np,volume);
     nattempt = static_cast<int> (attempt);
-    //if (comm->me == 6 && icell == 4752596) printf("%i - att: %4.3e\n", np, attempt);
 
     if (!nattempt) continue;
     nattempt_one += nattempt;
@@ -190,13 +168,11 @@ void Collide::collisions_one_sw()
 
     } // end attempt loop
   } // loop for cells
-  //if (comm->me == 6) printf("c: %i -- end collision loop \n", comm->me);
 
   // remove tiny weighted particles
 
   if (remove_min_flag) remove_tiny();
 
-  //if (comm->me == 6) printf("c: %i -- end collision \n", comm->me);
   return;
 }
 
@@ -615,9 +591,6 @@ void Collide::group_reduce()
 
       total_iter++;
 
-      //if (total_iter >= 1)
-      //  printf("i: %i; n: %i->%i; Ncmax_scale: %4.1f\n",
-      //    total_iter, nold, n, Ncmax_scale);
       if (total_iter > 10) break;
 
     } // while loop for n > ncmax
@@ -655,8 +628,6 @@ void Collide::group_bt(int *plist_leaf, int np)
       uVV[i][j] = 0.0;
     }
   }
-
-
 
   // find maximum particle weight
 
@@ -857,8 +828,8 @@ void Collide::reduce(int *pleaf, int np,
 
   // set reduced particle rotational energies
 
-  ipart->erot = Erot;
-  jpart->erot = Erot;
+  ipart->erot = Erot/rho;
+  jpart->erot = Erot/rho;
 
   // set reduced particle weights
 
@@ -937,8 +908,8 @@ void Collide::reduce(int *pleaf, int np,
 
   // set reduced particle rotational energies
 
-  ipart->erot = Erot;
-  jpart->erot = Erot;
+  ipart->erot = Erot/rho;
+  jpart->erot = Erot/rho;
 
   ipart->weight = isw;
   jpart->weight = jsw;
@@ -1032,8 +1003,8 @@ void Collide::reduce(int *pleaf, int np,
 
     // set reduced particle rotational energies
 
-    ipart->erot = Erot/nK;
-    jpart->erot = Erot/nK;
+    ipart->erot = Erot/rho/nK;
+    jpart->erot = Erot/rho/nK;
 
     // scale back weights
 
