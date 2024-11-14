@@ -546,7 +546,7 @@ void Collide::group_reduce()
     else cell_scale = pow(8,level-1);
 
     // upper bound to 1.5 times the max group size
-    Ncmax_scale = MAX(1.5*Ngmax,Ncmax/cell_scale);
+    Ncmax_scale = MAX(Ncgmin,Ncmax/cell_scale); // make a user input
 
     if (np <= Ncmax_scale) continue;
 
@@ -833,7 +833,7 @@ void Collide::reduce(int *pleaf, int np,
   // if there is bad weight, only create one and clone
 
   if (T <= 0) {
-    printf("bad temp\n");
+    //printf("bad temp\n");
     // set velocities to mean
     for (int d = 0; d < 3; d++) {
       ipart->v[d] = V[d];
@@ -919,7 +919,7 @@ void Collide::reduce(int *pleaf, int np,
   // if there is bad weight, only create one and clone
 
   if (isw != isw || isw <= 0.0 || jsw != jsw || jsw <= 0.0) {
-    printf("bad weight\n");
+    //printf("bad weight\n");
     ipart->weight = rho*0.5;
     jpart->weight = rho*0.5;
     // set velocities to mean
@@ -1020,7 +1020,7 @@ void Collide::reduce(int *pleaf, int np,
     // if there is bad weight, only create one and clone
 
     if (isw != isw || isw <= 0.0 || jsw != jsw || jsw <= 0.0) {
-      printf("bad weight\n");
+      //printf("bad weight\n");
       ipart->weight = rho*0.5/update->fnum;
       jpart->weight = rho*0.5/update->fnum;
       // set velocities to mean

@@ -134,6 +134,7 @@ class Collide : protected Pointers {
   int Ncmax;            // maximum number of particles in cell before reduce
   int Ngmin;            // minimum number of particles in group to reduce
   int Ngmax;            // maximum number of particles in group before reduce
+  int Ncgmin;           // minimum number of particles in a cell (adapted)
   int gbuf;             // group size buffer
   double sweight_max;   // maximum particle weight in cell at time t
   double wtf;           // weight transfer function

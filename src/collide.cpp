@@ -106,6 +106,7 @@ Collide::Collide(SPARTA *sparta, int, char **arg) : Pointers(sparta)
   pLU = NULL;
   remove_min_flag = 0;
   weighted = 1;
+  Ncgmin = 10;
 
   // used if near-neighbor model is invoked
 
@@ -451,6 +452,11 @@ void Collide::modify_params(int narg, char **arg)
       if (strcmp(arg[iarg+1],"no") == 0) weighted = 0;
       else if (strcmp(arg[iarg+1],"yes") == 0) weighted = 1;
       else error->all(FLERR,"Illegal collide_modify command");
+      iarg += 2;
+    } else if (strcmp(arg[iarg],"cellmin") == 0) {
+      if (iarg+2 > narg) error->all(FLERR,"Illegal collide_modify command");
+      Ncgmin = atof(arg[iarg+1]);
+      if (Ncgmin <= 0) error->all(FLERR,"Minimum cell count must be greater than 0");
       iarg += 2;
     } else error->all(FLERR,"Illegal collide_modify command");
   }
