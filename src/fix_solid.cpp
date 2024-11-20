@@ -252,8 +252,8 @@ void FixSolid::end_of_step()
 
   // force model type
 
-  if (force_type == GREEN || force_type == BURT) update_force_fm();
-  else if (force_type == LOTH || force_type == SINGH) update_force_emp();
+  if (force_type == GREEN || force_type == BURT) update_Fq_fm();
+  else if (force_type == LOTH || force_type == SINGH) update_Fq_emp();
 
   if (update->ntimestep % nevery) return;
 
@@ -322,7 +322,7 @@ void FixSolid::update_particle()
         phi_l = 1.0-phi_s;
         csp = phi_s*cp_solid + phi_l*cp_liquid;
 
-        Vp = 4./3.*3.14159*pow(Rp,3.0);
+        double Vp = 4./3.*3.14159*pow(Rp,3.0);
         //mp = Vp*(phi_s*rho_solid + phi_l*rho_liquid);
         mp = Vp*rho_solid;
 
@@ -331,16 +331,13 @@ void FixSolid::update_particle()
           particles[ip].v[d] = particles[ip].v[d] + solid_force[ip][d]*update->dt;
         
         // temperature
-        qin = solid_force[ip][3];
+        double qin = solid_force[ip][3];
 
         // only assume particle can sublimate
-        // TODO: Account for liquid phase
 
         if (phase_flag) {
-          error->one(FLERR,"should not be here");
 
           // First, determine saturation pressure
-
           // grab pressure in cell
           double p = 0; // pressure
           if (pwhich == AVERAGE) solid_bulk[ip][4];
@@ -350,18 +347,18 @@ void FixSolid::update_particle()
 
           // calculate saturation pressure of ice and water based on particle temp
           // ref: Huang 2018 
-          // Simple Accurate Formulat for Calc. Saturation Vapor Pressure
+          // Simple Accurate Formula. for Calc. Saturation Vapor Pressure
 
           // if T_degC < 0, cannot be liquid
           // if T_degC > 0, cannot be solid
           double psat;
-          if (T_degC > 0) { // water -> vapor
+          if (T_degC > 0)
             psat = exp(34.494 - (4924.99)/(T_degC+273.1))/pow(T_degC+105,1.57);
-          } else { // ice -> vapor
+          else
             psat = exp(43.494 - (6545.8)/(T_degC+278))/pow(T_degC+868,2.0);
-          }
 
           // Second determine mass lost (if any) according to Hertz-Knudsen
+          double m_h2o = 2.988e-26;
           double flux = (psat - p)/sqrt(2.0*3.14159*m_h2o*update->boltz*Tp);
           if (flux < 0) flux = 0.0;
 
@@ -374,7 +371,7 @@ void FixSolid::update_particle()
           mp = mp - mass_loss;
 
           // new particle size
-          Rp_new = pow( (mp/rho_solid)*0.75/3.14159 ,1.0/3.0)
+          Rp_new = pow( (mp/rho_solid)*0.75/3.14159, 1.0/3.0);
 
           double H_sub = 51.08/1000.0; // J/mol (temperature independent)
           double qflux = mass_loss * H_sub;
@@ -384,60 +381,6 @@ void FixSolid::update_particle()
           // based on sign of qnet, gas may or may not provide enough energy
           // .. to compensate energy lost due to phase change
           Tp_new = Tp + qnet*update->dt/csp/mp;
-
-          // determine current phase of particle
-          //double Tmelt = 273.15;
-          //double ptriple = 611.657;
-          //double v_vapor = 0.0186; // TODO: add temperature dependence
-          //double H_vap = 40.657/1000.0; // J/mol TODO: add temperature dependence
-          //double H_sub = 51.08/1000.0; // J/mol TODO: add temperature dependence
-
-          // determine vaporization temperature from Clausius-Clareyon
-          //double Tvap = (1.0/273.15) - log(psat/ptriple)*v_vapor/H_vap;
-
-          // determine sublimzation temperature from CC
-          //double Tsub = (1.0/273.15) - log(psat/ptriple)*v_vapor/H_sub;
-
-          // mass lost based on Hertz-Knudsen formular
-          // assume max evaporation rate
-          //double m_h20 = 3e-26; // kg
-
-          /*double flux = 0;
-          if (p < ptriple && T > T_sub) { // sublimates
-            flux += (psat - p)/sqrt(2.0*3.14159*m_h2o*update->boltz*Tp);
-          } else if (p > ptriple) { // can both melt and vaporize
-            if (phi_s > 0) { // first melt off rest of 
-            flux += 
-          }*/
-
-          // (1/A) (1/s)
-          //if (T > T_sub) flux = (psat - p)/sqrt(2.0*3.14159*m_h2o*update->boltz*Tp);
-
-          // magnus
-          // double psat = (610.94) * exp(-(6147.667/Tp));          
-
-          // Hertz Knudsen Equation for flux of sulbiming molecules
-          // ref: Kossacki and Leliwa-Kopystynski (2014) Icarus
-
-          // correction coefficients essentially
-          //double beta = 1.0;
-          //double alpha = 0.83; // rec from Gadsden 1998 and Winkler 2012 
-          //double m_h2o = 1.0; // TODO: replace with the mass from species file
-          // units = (1/A) * 1/s
-          //double flux = (psat - p)/sqrt(2.0*3.14159*m_h2o*update->boltz*Tp);
-
-          // does it sublimate?
-          /*if (flux > 0) {
-            double area = 3.14159*4.0*Rp*Rp;
-            double mloss = flux * area * rho_solid * update->dt;
-
-            // update mass
-            mp -= mloss;
-
-            // recalculate radius
-            double vol = mp/srho;
-            Rp = pow(vol*0.75/3.14159,1./3.);
-          }*/
 
         } else {
           Tp_new =  Tp + qin*update->dt/csp/mp;

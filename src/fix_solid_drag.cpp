@@ -25,7 +25,7 @@ enum{NOFORCE,GREEN,BURT,LOTH,SINGH};            // type of solid particle force
    Assumes free molecular
 ---------------------------------------------------------------------- */
 
-void FixSolid::update_force_fm()
+void FixSolid::update_Fq_fm()
 {
   // grab various particle and grid quantities
 
@@ -200,10 +200,10 @@ void FixSolid::update_force_fm()
 }
 
 /* ----------------------------------------------------------------------
-   Empirical drag laws
+   Empirical drag and heat flux laws
 ---------------------------------------------------------------------- */
 
-void FixSolid::update_force_emp()
+void FixSolid::update_Fq_emp()
 {
   error->all(FLERR,"Empirical drag laws not included yet");
   return;
