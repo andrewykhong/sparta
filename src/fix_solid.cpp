@@ -340,7 +340,7 @@ void FixSolid::update_particle()
           // First, determine saturation pressure
           // grab pressure in cell
           double p = 0; // pressure
-          if (pwhich == AVERAGE) solid_bulk[ip][4];
+          if (pwhich == AVERAGE) p = solid_bulk[ip][4];
 
           // use updated temp
           double T_degC = Tp - 273.15;
@@ -359,6 +359,7 @@ void FixSolid::update_particle()
 
           // Second determine mass lost (if any) according to Hertz-Knudsen
           double m_h2o = 2.988e-26;
+          // molecules per second per area
           double flux = (psat - p)/sqrt(2.0*3.14159*m_h2o*update->boltz*Tp);
           if (flux < 0) flux = 0.0;
 
@@ -367,20 +368,25 @@ void FixSolid::update_particle()
           // ref: Kossacki and Leliwa-Kopystynski (2014) Icarus
           // if sublimation rate is "slow", then can use current surface area
           double area = 3.14159*4.0*Rp*Rp;
-          double mass_loss = flux * area * rho_solid * update->dt;
-          mp = mp - mass_loss;
+          double mass_loss = flux * area * m_h2o * update->dt;
+          mp -= mass_loss;
 
           // new particle size
-          Rp_new = pow( (mp/rho_solid)*0.75/3.14159, 1.0/3.0);
+          if (mp > 0) {
+            Rp_new = pow( (mp/rho_solid)*0.75/3.14159, 1.0/3.0);
 
-          double H_sub = 51.08/1000.0; // J/mol (temperature independent)
-          double qflux = mass_loss * H_sub;
-          double qnet = qin - qflux;
+            double H_sub = 51.08/1000.0; // J/mol (temperature independent)
+            double qflux = mass_loss * H_sub;
+            double qnet = qin - qflux;
 
-          // update particle temp based on net heat flux
-          // based on sign of qnet, gas may or may not provide enough energy
-          // .. to compensate energy lost due to phase change
-          Tp_new = Tp + qnet*update->dt/csp/mp;
+            // update particle temp based on net heat flux
+            // based on sign of qnet, gas may or may not provide enough energy
+            // .. to compensate energy lost due to phase change
+            Tp_new = Tp + qnet*update->dt/csp/mp;
+
+          // particle is gone
+          } else Rp_new = Tp_new = mp = 0.0;
+            
 
         } else {
           Tp_new =  Tp + qin*update->dt/csp/mp;
@@ -392,16 +398,18 @@ void FixSolid::update_particle()
         solid_array[ip][2] = Tp_new;
         //solid_array[ip][3] = phi_s;
 
-        // update per-grid forces for outputting
+        if (Rp_new > 0.0) {
 
-        array_grid[icell][0] += Rp_new;
-        array_grid[icell][1] += mp;
-        array_grid[icell][2] += Tp_new;
-        array_grid[icell][3] += solid_force[ip][0];
-        array_grid[icell][4] += solid_force[ip][1];
-        array_grid[icell][5] += solid_force[ip][2];
-        array_grid[icell][6] += solid_force[ip][3];
-        nsolid++;
+          // update per-grid forces for outputting
+          array_grid[icell][0] += Rp_new;
+          array_grid[icell][1] += mp;
+          array_grid[icell][2] += Tp_new;
+          array_grid[icell][3] += solid_force[ip][0];
+          array_grid[icell][4] += solid_force[ip][1];
+          array_grid[icell][5] += solid_force[ip][2];
+          array_grid[icell][6] += solid_force[ip][3];
+          nsolid++;
+        }
 
       } // end check species
 
