@@ -328,7 +328,7 @@ void FixSolid::update_particle()
 
         // velocities
         for (int d = 0; d < dim; d++)
-          particles[ip].v[d] = particles[ip].v[d] + solid_force[ip][d]*update->dt;
+          particles[ip].v[d] = particles[ip].v[d] + solid_force[ip][d]*update->dt*nevery;
         
         // temperature
         double qin = solid_force[ip][3];
@@ -368,7 +368,7 @@ void FixSolid::update_particle()
           // ref: Kossacki and Leliwa-Kopystynski (2014) Icarus
           // if sublimation rate is "slow", then can use current surface area
           double area = 3.14159*4.0*Rp*Rp;
-          double mass_loss = flux * area * m_h2o * update->dt;
+          double mass_loss = flux * area * m_h2o * update->dt * nevery;
           mp -= mass_loss;
 
           // new particle size
@@ -382,14 +382,14 @@ void FixSolid::update_particle()
             // update particle temp based on net heat flux
             // based on sign of qnet, gas may or may not provide enough energy
             // .. to compensate energy lost due to phase change
-            Tp_new = Tp + qnet*update->dt/csp/mp;
+            Tp_new = Tp + qnet*update->dt*nevery/csp/mp;
 
           // particle is gone
           } else Rp_new = Tp_new = mp = 0.0;
             
 
         } else {
-          Tp_new =  Tp + qin*update->dt/csp/mp;
+          Tp_new =  Tp + qin*update->dt*nevery/csp/mp;
           Rp_new = Rp;
         }
 
