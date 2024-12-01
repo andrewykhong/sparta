@@ -120,6 +120,16 @@ class Collide : protected Pointers {
   int maxelectron;              // max # elist can hold
   Particle::OnePart *elist;     // list of ambipolar electrons
                                 // for one grid cell or pair of groups in cell
+
+  // Burt's model for back coupling
+
+  int scatterflag;       // 1 if collision approximated using Burt's model
+  int solid_species;     // species for ambipolar electrons
+  int index_ionambi;     // 2 custom ambipolar vectors
+  int index_velambi;     // 
+  double alpha;          // 
+  double eps;            // 
+
   // Kokkos data
 
   int oldgroups;         // pass from parent to child class

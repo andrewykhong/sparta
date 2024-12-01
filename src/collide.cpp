@@ -90,6 +90,8 @@ Collide::Collide(SPARTA *sparta, int, char **arg) : Pointers(sparta)
   maxelectron = 0;
   elist = NULL;
 
+  scatterflag = 0;
+
   // used if near-neighbor model is invoked
 
   max_nn = 1;
@@ -379,7 +381,12 @@ void Collide::modify_params(int narg, char **arg)
       if (nearcp && nearlimit <= 0)
         error->all(FLERR,"Illegal collide_modify command");
       iarg += 3;
-
+    } else if (strcmp(arg[iarg],"scatter") == 0) {
+      if (iarg+2 > narg) error->all(FLERR,"Illegal collide_modify command");
+      if (strcmp(arg[iarg+1],"no") == 0) scatterflag = 0;
+      else if (strcmp(arg[iarg+1],"yes") == 0) scatterflag = 1;
+      else error->all(FLERR,"Illegal collide_modify command");
+      iarg += 2;
     } else error->all(FLERR,"Illegal collide_modify command");
   }
 }
