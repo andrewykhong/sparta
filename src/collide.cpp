@@ -24,6 +24,7 @@
 #include "modify.h"
 #include "fix.h"
 #include "fix_ambipolar.h"
+#include "fix_solid.h"
 #include "random_mars.h"
 #include "random_knuth.h"
 #include "memory.h"
@@ -90,7 +91,7 @@ Collide::Collide(SPARTA *sparta, int, char **arg) : Pointers(sparta)
   maxelectron = 0;
   elist = NULL;
 
-  scatterflag = 0;
+  solidflag = 0;
 
   // used if near-neighbor model is invoked
 
@@ -311,6 +312,23 @@ void Collide::init()
                  "electrons be their own group");
   }
 
+  // find solid fix and custom array
+  // set solid_species
+
+  if (solidflag) {
+    index_solidparam = particle->find_custom((char *) "solid_params");
+    if (index_solidparam < 0)
+      error->all(FLERR,"Collision solid without fix solid");
+
+    int ifix;
+    for (ifix = 0; ifix < modify->nfix; ifix++)
+      if (strcmp(modify->fix[ifix]->style,"solid") == 0) break;
+    FixSolid *sfix = (FixSolid *) modify->fix[ifix];
+    solid_species = sfix->solid_species;
+    solid_alpha = sfix->alpha;
+    solid_eps = sfix->eps;
+  }
+
   // vre_next = next timestep to zero vremax & remain, based on vre_every
 
   if (vre_every) vre_next = (update->ntimestep/vre_every)*vre_every + vre_every;
@@ -381,10 +399,10 @@ void Collide::modify_params(int narg, char **arg)
       if (nearcp && nearlimit <= 0)
         error->all(FLERR,"Illegal collide_modify command");
       iarg += 3;
-    } else if (strcmp(arg[iarg],"scatter") == 0) {
+    } else if (strcmp(arg[iarg],"solid") == 0) {
       if (iarg+2 > narg) error->all(FLERR,"Illegal collide_modify command");
-      if (strcmp(arg[iarg+1],"no") == 0) scatterflag = 0;
-      else if (strcmp(arg[iarg+1],"yes") == 0) scatterflag = 1;
+      if (strcmp(arg[iarg+1],"no") == 0) solidflag = 0;
+      else if (strcmp(arg[iarg+1],"yes") == 0) solidflag = 1;
       else error->all(FLERR,"Illegal collide_modify command");
       iarg += 2;
     } else error->all(FLERR,"Illegal collide_modify command");
@@ -412,7 +430,7 @@ void Collide::reset_vremax()
 
 void Collide::collisions()
 {
-  // if requested, reset vrwmax & remain
+  // if requested, reset vremax & remain
 
   if (update->ntimestep == vre_next) {
     reset_vremax();
@@ -429,7 +447,13 @@ void Collide::collisions()
   // variant for nearcp flag or not
   // variant for ambipolar approximation or not
 
-  if (!ambiflag) {
+
+  if (ambiflag) {
+    if (ngroups == 1) collisions_one_ambipolar();
+    else collisions_group_ambipolar();
+  //} else if {solidflag) {
+  //
+  } else {
     if (nearcp == 0) {
       if (ngroups == 1) collisions_one<0>();
       else collisions_group<0>();
@@ -437,9 +461,6 @@ void Collide::collisions()
       if (ngroups == 1) collisions_one<1>();
       else collisions_group<1>();
     }
-  } else {
-    if (ngroups == 1) collisions_one_ambipolar();
-    else collisions_group_ambipolar();
   }
 
   // remove any particles deleted in chemistry reactions

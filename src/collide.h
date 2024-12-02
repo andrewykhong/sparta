@@ -121,14 +121,13 @@ class Collide : protected Pointers {
   Particle::OnePart *elist;     // list of ambipolar electrons
                                 // for one grid cell or pair of groups in cell
 
-  // Burt's model for back coupling
+  // Burt's model for solid-to-gas coupling
 
-  int scatterflag;       // 1 if collision approximated using Burt's model
+  int solidflag;         // 1 if collision approximated using Burt's model
   int solid_species;     // species for ambipolar electrons
-  int index_ionambi;     // 2 custom ambipolar vectors
-  int index_velambi;     // 
-  double alpha;          // 
-  double eps;            // 
+  int index_solidparam;  // index for custom array which holds particle temp
+  double solid_alpha;    // fraction of collisions which are diffuse 
+  double solid_eps;      // fraction of collisions which are specular
 
   // Kokkos data
 

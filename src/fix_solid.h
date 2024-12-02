@@ -39,6 +39,9 @@ class FixSolid : public Fix {
 
   double get_particle_property(int, int);
 
+  int solid_species;  // species for solid species
+  double alpha,eps; // for defining surface-type (Lord) for Green
+
  protected:
 
   int dim; // dimension (2 or 3)
@@ -53,7 +56,6 @@ class FixSolid : public Fix {
   // custom array for solid force  : Fx, Fy, Fz, heat flux
 
   int index_solid_params, index_solid_force, index_solid_bulk;
-  int solid_species;  // species for solid species
   int npmax; // track upper bound for number of particles
   double fnum_rat; // ratio of gas to solid particle Fnum
 
@@ -82,7 +84,6 @@ class FixSolid : public Fix {
   double Q1; // prefactor for heat flux defined by surface model
   int *id; // solid particle id
   double *Tg, *Ug; // gas temperature, velocity
-  double alpha,eps; // for defining surface-type (Lord) for Green
 
   void update_Fq_fm(); // free molecular force
   void update_Fq_emp(); // empirically derive force

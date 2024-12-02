@@ -333,6 +333,9 @@ void FixSolid::update_particle()
         // temperature
         double qin = solid_force[ip][3];
 
+        // for testing
+        qin = 0.5;
+
         // only assume particle can sublimate
 
         if (phase_flag) {
