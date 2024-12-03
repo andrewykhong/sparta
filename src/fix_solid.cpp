@@ -79,6 +79,8 @@ FixSolid::FixSolid(SPARTA *sparta, int narg, char **arg) :
 
   Tp0 = atof(arg[3]);
 
+  // compute for temperature and pressure
+
   // optional args
 
   ifix = -1;

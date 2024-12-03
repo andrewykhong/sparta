@@ -46,7 +46,7 @@ void FixSolid::update_Fq_fm()
   double Rp,mp,Tp,csp; // particle radius, mass, temperature, and specific heat
   double cx,cy,cz,cmag; // thermal velocity of gas and solid particles
   double *u,*up;  // velocity of gas and solid particles
-  double um[3]; // drift velocity (zero if no charge or gravity) 
+  double um[3], usq[3]; // drift velocity (zero if no charge or gravity) 
   double Fg[3],Qg; // force and heat flux as defined by Green function
   double totalmass; // for calculating temperature
   double mass,T,p; // gas particle mass, gas temperature and pressure
@@ -70,9 +70,8 @@ void FixSolid::update_Fq_fm()
     // get solid particle velocities
 
     nsolid = 0;
-    um[0] = 0.0;
-    um[1] = 0.0;
-    um[2] = 0.0;
+    um[0] = um[1] = um[2] = 0.0;
+    usq[0] = usq[1] = usq[2] = 0.0;
     totalmass = 0.0;
 
     // drift belocity defined as F / beta where
@@ -89,6 +88,9 @@ void FixSolid::update_Fq_fm()
         um[0] += mass*u[0];
         um[0] += mass*u[1];
         um[0] += mass*u[2];
+        usq[0] += mass*u[0]*u[0];
+        usq[1] += mass*u[1]*u[1];
+        usq[2] += mass*u[2]*u[2];
       }
       ip = next[ip];
     }
