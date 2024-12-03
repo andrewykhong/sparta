@@ -42,6 +42,7 @@ enum{SIZE,MASS,TEMP,FORCEX,FORCEY,FORCEZ,HEAT};
 enum{PZERO,AVERAGE};
 
 #define DELTADELETE 1024
+#define MAXLINE 1024
 
 /* ---------------------------------------------------------------------- */
 
@@ -68,20 +69,15 @@ FixSolid::FixSolid(SPARTA *sparta, int narg, char **arg) :
 
   if (narg < 7) error->all(FLERR,"Not enough arguments for fix solid command");
 
-  solid_species = particle->find_species(arg[2]);
-  if (solid_species < 0) error->all(FLERR,"Fix solid drag species does not exist");
+  // read in initial solid particle properties
+
+  fp = fopen(arg[2],"r");
+  if (!fp) error->one(FLERR,"Solid species file not found");
+  read_solid();
 
   // initial solid particle temperature and specific heat
 
-  Rp0 = atof(arg[3]);
-  rho_solid = atof(arg[4]);
-  rho_liquid = atof(arg[5]);
-  // assume all solid at first
-  if (dim == 2) mp0 = 3.141598*Rp0*Rp0*rho_solid;
-  else mp0 = 4./3.*3.14159*pow(Rp0,3.0)*rho_solid;
-  Tp0 = atof(arg[6]);
-  cp_solid = atof(arg[7]);
-  cp_liquid = atof(arg[8]);
+  Tp0 = atof(arg[3]);
 
   // optional args
 
@@ -92,7 +88,8 @@ FixSolid::FixSolid(SPARTA *sparta, int narg, char **arg) :
   force_type = NOFORCE;
   pwhich = PZERO;
   uxp0 = uyp0 = uzp0 = 0.0;
-  int iarg = 9;
+
+  int iarg = 4;
   while (iarg < narg) {
     // to model particle mass loss
     if (strcmp(arg[iarg],"reduce") == 0) {
@@ -124,14 +121,10 @@ FixSolid::FixSolid(SPARTA *sparta, int narg, char **arg) :
       iarg += 4;
     } else if (strcmp(arg[iarg],"green") == 0) {
       force_type = GREEN;
-      alpha = atof(arg[iarg+1]);
-      eps = atof(arg[iarg+2]);
-      iarg += 3;
+      iarg++;
     } else if (strcmp(arg[iarg],"burt") == 0) { 
-      if (iarg+2 > narg) error->all(FLERR,"Invalid fix solid command");
       force_type = BURT;
-      alpha = atof(arg[iarg+1]); // tau
-      iarg += 2;
+      iarg++;
     } else error->all(FLERR,"Invalid fix solid command");
   }
 
@@ -151,6 +144,7 @@ FixSolid::FixSolid(SPARTA *sparta, int narg, char **arg) :
   random = new RanKnuth(update->ranmaster->uniform());
   double seed = update->ranmaster->uniform();
   random->reset(seed,comm->me,100);
+
 }
 
 /* ---------------------------------------------------------------------- */
@@ -323,18 +317,16 @@ void FixSolid::update_particle()
         csp = phi_s*cp_solid + phi_l*cp_liquid;
 
         double Vp = 4./3.*3.14159*pow(Rp,3.0);
-        //mp = Vp*(phi_s*rho_solid + phi_l*rho_liquid);
-        mp = Vp*rho_solid;
+        mp = Vp*(phi_s*rho_solid + phi_l*rho_liquid);
 
         // velocities
-        for (int d = 0; d < dim; d++)
-          particles[ip].v[d] = particles[ip].v[d] + solid_force[ip][d]*update->dt*nevery;
+        for (int d = 0; d < dim; d++) {
+          particles[ip].v[d] = particles[ip].v[d] +
+            solid_force[ip][d]*update->dt*nevery;
+        }
         
-        // temperature
-        double qin = solid_force[ip][3];
-
-        // for testing
-        qin = 0.5;
+        // joules
+        double Ein = solid_force[ip][3];
 
         // only assume particle can sublimate
 
@@ -361,9 +353,11 @@ void FixSolid::update_particle()
             psat = exp(43.494 - (6545.8)/(T_degC+278))/pow(T_degC+868,2.0);
 
           // Second determine mass lost (if any) according to Hertz-Knudsen
-          double m_h2o = 2.988e-26;
-          // molecules per second per area
-          double flux = (psat - p)/sqrt(2.0*3.14159*m_h2o*update->boltz*Tp);
+          double m_h2o = 2.988e-26; // [kg]
+          double M_h2o = 0.018; // [kg/mol]
+          double R_u = 8.314; // [J/(mol K)]
+          // kg per second per area
+          double flux = (psat - p)*sqrt(M_h2o/(2.0*3.14159*R_u*Tp));
           if (flux < 0) flux = 0.0;
 
           // determine mass lost and update radius based on
@@ -371,28 +365,27 @@ void FixSolid::update_particle()
           // ref: Kossacki and Leliwa-Kopystynski (2014) Icarus
           // if sublimation rate is "slow", then can use current surface area
           double area = 3.14159*4.0*Rp*Rp;
-          double mass_loss = flux * area * m_h2o * update->dt * nevery;
-          mp -= mass_loss;
+          double del_mp = flux * area * update->dt * nevery;
+          mp -= del_mp;
 
-          // new particle size
+          // new reduced particle size
           if (mp > 0) {
             Rp_new = pow( (mp/rho_solid)*0.75/3.14159, 1.0/3.0);
 
-            double H_sub = 51.08/1000.0; // J/mol (temperature independent)
-            double qflux = mass_loss * H_sub;
-            double qnet = qin - qflux;
+            double Eflux = del_mp*dHsub;
+            double Enet = Ein - Eflux;
 
             // update particle temp based on net heat flux
             // based on sign of qnet, gas may or may not provide enough energy
             // .. to compensate energy lost due to phase change
-            Tp_new = Tp + qnet*update->dt*nevery/csp/mp;
+            Tp_new = Tp + Enet/csp/(mp+del_mp)*update->dt*nevery; // use old mass
 
           // particle is gone
           } else Rp_new = Tp_new = mp = 0.0;
             
 
         } else {
-          Tp_new =  Tp + qin*update->dt*nevery/csp/mp;
+          Tp_new =  Tp + Ein/csp/mp*update->dt*nevery;
           Rp_new = Rp;
         }
 
@@ -501,6 +494,73 @@ double FixSolid::get_particle_property(int which, int ip)
   else if (which == HEAT)   return solid_force[ip][3];
   return -1;
 
+}
+
+/* ----------------------------------------------------------------------
+   read list of species defined in species file
+   store info in filespecies and nfile
+   only invoked by proc 0
+------------------------------------------------------------------------- */
+
+void FixSolid::read_solid()
+{
+  // read file line by line
+  // skip blank lines or comment lines starting with '#'
+  // all other lines must have NWORDS
+
+  int NWORDS = 8;
+  char **words = new char*[NWORDS];
+  char line[MAXLINE],copy[MAXLINE];
+
+  while (fgets(line,MAXLINE,fp)) {
+    int pre = strspn(line," \t\n\r");
+    if (pre == strlen(line) || line[pre] == '#') continue;
+
+    // check line length
+    int nwords = wordcount(line,words);
+    if (nwords != NWORDS)
+      error->one(FLERR,"Incorrect line format in solid species file");
+
+    char isp[16];
+    strcpy(isp,words[0]);
+    solid_species = particle->find_species(isp);
+    if (solid_species < 0) error->all(FLERR,"Fix solid drag species does not exist");
+
+    Rp0 = atof(words[1]);
+    rho_solid = atof(words[2]);
+    rho_liquid = atof(words[3]);
+    if (dim == 2) mp0 = 3.141598*Rp0*Rp0*rho_solid;
+    else mp0 = 4./3.*3.14159*pow(Rp0,3.0)*rho_solid;
+    cp_solid = atof(words[4]);
+    cp_liquid = atof(words[5]);
+    alpha = atof(words[6]);
+    eps = 1.0 - alpha;
+    dHsub = atof(words[7]);
+  }
+
+  delete [] words;
+
+  fclose(fp);
+}
+
+/* ----------------------------------------------------------------------
+   count whitespace-delimited words in line
+   line will be modified, since strtok() inserts NULLs
+   if words is non-NULL, store ptr to each word
+------------------------------------------------------------------------- */
+
+int FixSolid::wordcount(char *line, char **words)
+{
+  int nwords = 0;
+  char *word = strtok(line," \t\n");
+
+  while (word) {
+    if (words) words[nwords] = word;
+    nwords++;
+    word = strtok(NULL," \t\n");
+  }
+
+  return nwords;
 }
 
 /* ----------------------------------------------------------------------

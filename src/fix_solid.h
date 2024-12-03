@@ -51,6 +51,8 @@ class FixSolid : public Fix {
   int ifix; // fix for storing species-dependent
   int nglocal; // number of local grid cells
 
+  FILE *fp; // file pointer for solid properties
+
   // index for custom per-particle solid propeties
   // custom array for solid params : radius, mass, specific heat, temperature
   // custom array for solid force  : Fx, Fy, Fz, heat flux
@@ -65,6 +67,7 @@ class FixSolid : public Fix {
   double rho_solid, rho_liquid; // density of ice and water
   double Tp0, cp_solid, cp_liquid; // initial temperature and specific heats
   double uxp0, uyp0, uzp0; // initial velocity of particle (for testing)
+  double dHsub; // latent heat of sublimation
 
   // for approximating mass loss due to heating
 
@@ -92,12 +95,11 @@ class FixSolid : public Fix {
   void reset_velocities(int);
   double update_mass(double, double);
 
-  // for determining new particle size due to mass loss
-
-
   // misc functions
 
   void reallocate();
+  void read_solid();
+  int wordcount(char *, char **);
 
   // random num
 
