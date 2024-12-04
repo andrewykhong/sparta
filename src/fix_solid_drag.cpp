@@ -49,12 +49,14 @@ void FixSolid::update_Fq_fm()
   double cx,cy,cz,cmag; // thermal velocity of gas and solid particles
   double *u,*up;  // velocity of gas and solid particles
   double mv[3], mvsq, um[3]; // drift velocity (zero if no charge or gravity) 
-  double Fg[3],Qg; // force and heat flux as defined by Green function
+  double Fg[3],Eg; // force and energy as defined by Green function
   double totalmass; // for calculating temperature
   double mass,T,p; // gas particle mass, gas temperature and pressure
   double csx,cp; // solid particle cross section and thermal velocity
   double frat; // ratio of gas to solid weight
   double prefactor; // prefactor
+
+  double Fgtotal[3], Egtotal; // total force and energy change
 
   /*
   modify->clearstep_compute();
@@ -132,6 +134,7 @@ void FixSolid::update_Fq_fm()
 
     // calculate incident forces and heat flux
 
+    Fgtotal[0] = Fgtotal[1] = Fgtotal[2] = Egtotal = 0.0;
     for (is = 0; is < nsolid; is++) {
       sid = id[is];
       up = particles[sid].v;
@@ -140,7 +143,7 @@ void FixSolid::update_Fq_fm()
       Tp = solid_array[sid][3];
       csp = solid_array[sid][4];
 
-      Fg[0] = Fg[1] = Fg[2] = Qg = 0.0;
+      Fg[0] = Fg[1] = Fg[2] = Eg = 0.0;
 
       ip = cinfo[icell].first;
       while (ip >= 0) {
@@ -165,8 +168,8 @@ void FixSolid::update_Fq_fm()
             Fg[1] += mass*cy*(F1*cmag+F2*cp);
             if (dim == 3)
               Fg[2] += mass*cz*(F1*cmag+F2*cp);
-            Qg    += mass*cmag*Q1*(0.5*cmag*cmag-cp*cp);
-            //Qg += cmag*Q1*(erot - (0.5*nrot)*update->boltz*Tp);
+            Eg    += mass*cmag*Q1*(0.5*cmag*cmag-cp*cp);
+            //Eg += cmag*Q1*(erot - (0.5*nrot)*update->boltz*Tp);
           } else if (force_type == BURT) {
             cp = sqrt(update->boltz*Tp*mass);
 
@@ -174,8 +177,8 @@ void FixSolid::update_Fq_fm()
             Fg[1] += cy*(mass*cmag+F2*cp);
             if (dim == 3)
               Fg[2] += cz*(mass*cmag+F2*cp);
-            Qg += cmag*Q1*(0.5*mass*cmag*cmag-2.0*update->boltz*Tp);
-            //Qg += cmag*Q1*(erot - (0.5*nrot)*update->boltz*Tp);
+            Eg += cmag*Q1*(0.5*mass*cmag*cmag-2.0*update->boltz*Tp);
+            //Eg += cmag*Q1*(erot - (0.5*nrot)*update->boltz*Tp);
           }
         }
         ip = next[ip];
@@ -186,14 +189,21 @@ void FixSolid::update_Fq_fm()
       Fg[0] *= prefactor;
       Fg[1] *= prefactor;
       Fg[2] *= prefactor;
-      Qg    *= prefactor;
+      Eg    *= prefactor;
+
+      // keep track of total force and energy change in cell
+
+      if (conserve_flag) {
+        for (int d = 0; d < 3; d++) Fq_grid[icell][d] += Fg[d]*update->dt;
+        Fq_grid[icell][3] += Eg*update->dt/csp/;
+      }
 
       // update per-particle forces
 
       solid_force[sid][0] = (solid_force[sid][0]*nsample+Fg[0])/(nsample+1.0);
       solid_force[sid][1] = (solid_force[sid][1]*nsample+Fg[1])/(nsample+1.0);
       solid_force[sid][2] = (solid_force[sid][2]*nsample+Fg[2])/(nsample+1.0);
-      solid_force[sid][3] = (solid_force[sid][3]*nsample+Qg)/(nsample+1.0);
+      solid_force[sid][3] = (solid_force[sid][3]*nsample+Eg)/(nsample+1.0);
 
       solid_bulk[sid][0] = (solid_bulk[sid][0]*nsample+um[0])/(nsample+1.0);
       solid_bulk[sid][1] = (solid_bulk[sid][1]*nsample+um[1])/(nsample+1.0);
@@ -202,6 +212,7 @@ void FixSolid::update_Fq_fm()
       solid_bulk[sid][4] = (solid_bulk[sid][4]*nsample+p)/(nsample+1.0);
 
     } // end solid loop
+
   } // end cells
 
   // number of samples

@@ -66,6 +66,7 @@ FixSolid::FixSolid(SPARTA *sparta, int narg, char **arg) :
   size_per_grid_cols = 7;
   nglocal = 0;
   array_grid = NULL;
+  Fq_grid = NULL;
 
   if (narg < 7) error->all(FLERR,"Not enough arguments for fix solid command");
 
@@ -155,6 +156,7 @@ FixSolid::FixSolid(SPARTA *sparta, int narg, char **arg) :
   force_type = NOFORCE;
   pwhich = PZERO;
   uxp0 = uyp0 = uzp0 = 0.0;
+  conserve_flag = 0;
 
   int iarg = 4;
   while (iarg < narg) {
@@ -189,8 +191,8 @@ FixSolid::FixSolid(SPARTA *sparta, int narg, char **arg) :
     } else if (strcmp(arg[iarg],"green") == 0) {
       force_type = GREEN;
       iarg++;
-    } else if (strcmp(arg[iarg],"burt") == 0) { 
-      force_type = BURT;
+    } else if (strcmp(arg[iarg],"conserve") == 0) { 
+      conserve_flag = 1;
       iarg++;
     } else error->all(FLERR,"Invalid fix solid command");
   }
@@ -223,6 +225,7 @@ FixSolid::~FixSolid()
   memory->destroy(id);
   memory->destroy(dellist);
   memory->destroy(array_grid);
+  memory->destroy(Fq_grid);
   //memory->destroy(cell_Tp);
 
   //delete [] argindex;
@@ -662,15 +665,21 @@ void FixSolid::reallocate()
   if (grid->nlocal == nglocal) return;
 
   memory->destroy(array_grid);
+  memory->destroy(Fq_grid);
   //memory->destroy(cell_Tp);
   nglocal = grid->nlocal;
   memory->create(array_grid,nglocal,size_per_grid_cols,"fix/solid:array_grid");
+  memory->create(Fq_grid,nglocal,4,"fix/solid:Fq_grid");
   //memory->create(cell_Tp,nglocal,2,"fix/solid:cell_Tp");
 
   // initialize values
-  for (int i = 0; i < nglocal; i++)
-    for (int j = 0; j < size_per_grid_cols; j++)
+  for (int i = 0; i < nglocal; i++) {
+    for (int j = 0; j < size_per_grid_cols; j++) {
       array_grid[i][j] = 0.0;
+      Fq_grid[i][j] = 0.0;
+    }
     //for (int j = 0; j < 2; j++)
     //  cell_Tp[i][j] = 0.0;
 }
+  }
+
