@@ -53,6 +53,13 @@ class FixSolid : public Fix {
 
   FILE *fp; // file pointer for solid properties
 
+  char **ids;                // ID/name of compute,fix,variable to access
+  int *argindex;             // which column from compute or fix to access
+  int *value2index;          // index of compute,fix,variable
+  int *post_process;         // 1 if need compute->post_process() on value
+  double **cell_Tp;          // array of tally quantities, cells by ntotal
+                             // can be multiple tally quantities per value
+
   // index for custom per-particle solid propeties
   // custom array for solid params : radius, mass, specific heat, temperature
   // custom array for solid force  : Fx, Fy, Fz, heat flux

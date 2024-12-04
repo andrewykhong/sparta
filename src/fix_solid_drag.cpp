@@ -20,6 +20,8 @@ using namespace MathConst;
 
 enum{NOFORCE,GREEN,BURT,LOTH,SINGH};            // type of solid particle force
 
+#define INVOKED_PER_GRID 16
+
 /* ----------------------------------------------------------------------
    Momentum and heat fluxes based on Green's functions
    Assumes free molecular
@@ -40,19 +42,46 @@ void FixSolid::update_Fq_fm()
   double **solid_force = particle->edarray[particle->ewhich[index_solid_force]];
   double **solid_bulk  = particle->edarray[particle->ewhich[index_solid_bulk]];
 
-  int i,icell,ip,is; // dummy indices
+  int i,j,k,icell,ip,is; // dummy indices
   int ispecies, sid; // species of particle i; particle indices of solid particles
   int np, nsolid; // number of total simulators; number of solid simulators
   double Rp,mp,Tp,csp; // particle radius, mass, temperature, and specific heat
   double cx,cy,cz,cmag; // thermal velocity of gas and solid particles
   double *u,*up;  // velocity of gas and solid particles
-  double um[3], usq[3]; // drift velocity (zero if no charge or gravity) 
+  double mv[3], mvsq, um[3]; // drift velocity (zero if no charge or gravity) 
   double Fg[3],Qg; // force and heat flux as defined by Green function
   double totalmass; // for calculating temperature
   double mass,T,p; // gas particle mass, gas temperature and pressure
   double csx,cp; // solid particle cross section and thermal velocity
   double frat; // ratio of gas to solid weight
   double prefactor; // prefactor
+
+  /*
+  modify->clearstep_compute();
+
+  for (i = 0; i < 2; i++) {
+    Compute *compute = modify->compute[value2index[i]];
+    if (!(compute->invoked_flag & INVOKED_PER_GRID)) {
+      compute->compute_per_grid();
+      compute->invoked_flag |= INVOKED_PER_GRID;
+    }
+
+    if(post_process[i])
+      // index, nsample, etally, emap, vec, nstride
+      compute->post_process_grid(argindex[i],1,NULL,NULL,NULL,2);
+
+    if (argindex[i] == 0) {
+      double *cvec = compute->vector_grid;
+      for (j = 0; j < nglocal; j++) cell_Tp[j][i] = cvec[j];
+    } else {
+      double **carray = compute->array_grid;
+      k = argindex[i] - 1;
+      for (j = 0; j < nglocal; j++) cell_Tp[j][i] = carray[j][k];
+    }
+
+  }
+  error->one(FLERR,"ck");
+  */
 
   for (icell = 0; icell < nglocal; icell++) {
 
@@ -70,8 +99,7 @@ void FixSolid::update_Fq_fm()
     // get solid particle velocities
 
     nsolid = 0;
-    um[0] = um[1] = um[2] = 0.0;
-    usq[0] = usq[1] = usq[2] = 0.0;
+    mv[0] = mv[1] = mv[2] = mvsq = 0.0;
     totalmass = 0.0;
 
     // drift belocity defined as F / beta where
@@ -85,42 +113,22 @@ void FixSolid::update_Fq_fm()
         mass = species[ispecies].mass;
         u = particles[ip].v;
         totalmass += mass;
-        um[0] += mass*u[0];
-        um[0] += mass*u[1];
-        um[0] += mass*u[2];
-        usq[0] += mass*u[0]*u[0];
-        usq[1] += mass*u[1]*u[1];
-        usq[2] += mass*u[2]*u[2];
+        mv[0] += mass*u[0];
+        mv[1] += mass*u[1];
+        mv[2] += mass*u[2];
+        mvsq = mass*(u[0]*u[0]+u[1]*u[1]+u[2]*u[2]);
       }
       ip = next[ip];
     }
 
-    um[0] /= totalmass;
-    um[1] /= totalmass;
-    um[2] /= totalmass;
+    // calculate macroscopic vars
 
-    // calculate gas state
-
-    T = 0;
-    ip = cinfo[icell].first;
-    while (ip >= 0) {
-      ispecies = particles[ip].ispecies;
-      if (ispecies != solid_species) {
-        mass = species[ispecies].mass;
-        u = particles[ip].v;
-
-        cx = u[0]-um[0];
-        cy = u[1]-um[1];
-        cz = u[2]-um[2];
-        T += mass*(cx*cx+cy*cy+cz*cz);
-      }
-      ip = next[ip];
-    }
-
-    // removed half from numer. and denom.
-
+    T = mvsq - (mv[0]*mv[0] + mv[1]*mv[1] + mv[2]*mv[2])/totalmass;
+    p = T*update->fnum/3.0/cinfo[icell].volume*cinfo[icell].weight;
     T /= (3.0*update->boltz*(np-nsolid));
-    p = (np-nsolid)/cinfo[icell].volume*update->boltz*T;
+    um[0] = mv[0]/totalmass;
+    um[1] = mv[1]/totalmass;
+    um[2] = mv[2]/totalmass;
 
     // calculate incident forces and heat flux
 
