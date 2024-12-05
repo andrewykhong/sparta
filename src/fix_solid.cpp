@@ -66,7 +66,7 @@ FixSolid::FixSolid(SPARTA *sparta, int narg, char **arg) :
   size_per_grid_cols = 7;
   nglocal = 0;
   array_grid = NULL;
-  Fq_grid = NULL;
+  //Fq_grid = NULL;
 
   if (narg < 7) error->all(FLERR,"Not enough arguments for fix solid command");
 
@@ -225,7 +225,7 @@ FixSolid::~FixSolid()
   memory->destroy(id);
   memory->destroy(dellist);
   memory->destroy(array_grid);
-  memory->destroy(Fq_grid);
+  //memory->destroy(Fq_grid);
   //memory->destroy(cell_Tp);
 
   //delete [] argindex;
@@ -272,6 +272,7 @@ void FixSolid::init()
   }
 
   fnum_rat = 1.0/particle->species[solid_species].specwt;
+  ofnum_rat = particle->species[solid_species].specwt;
 
   reallocate();
 }
@@ -358,15 +359,18 @@ void FixSolid::update_particle()
 
   // indices
 
-  int i,icell,ip,ispecies,np;
+  int i,icell,ip,ispecies,np,isp;
 
   // particle related
 
-  double v[3],cx,cy,cz,csq;
+  double vold[3],cx,cy,cz,csq;
   double Rp,phi_s,phi_l,Tp,csp;
   double mp, mp_s, mp_l;
-  double Tp_new,Rp_new;
+  double Tp_new,Rp_new,mp_new;
   double Q,mp_loss,rho,new_vol;
+
+  double mass_g, Eth_g, Erot_g, U_g[3], total_rdof;
+  double dj[3], dke, dT;
 
   int nsolid;
 
@@ -381,11 +385,24 @@ void FixSolid::update_particle()
 
     nsolid = 0;
 
+    // calculate per-particle force and energy to conserver momentum and energy
+
+    //dFx = Fq_grid[icell][0];
+    //dFy = Fq_grid[icell][1];
+    //dFz = Fq_grid[icell][2];
+    //dE  = Fq_grid[icell][3];
+
     // update only solid particles
+
+    mass_g = Eth_g = total_rdof = Erot_g = 0.0;
+    dke = dT = 0.0;
+    U_g[0] = U_g[1] = U_g[2] = 0.0;
+    dj[0] = dj[1] = dj[2] = 0.0;
 
     ip = cinfo[icell].first;
     while (ip >= 0) {
-      if (particles[ip].ispecies == solid_species) {
+      isp = particles[ip].ispecies;
+      if (isp == solid_species) {
         Rp = solid_array[ip][1];
         Tp = solid_array[ip][2];
         phi_s = solid_array[ip][3];
@@ -395,12 +412,6 @@ void FixSolid::update_particle()
         double Vp = 4./3.*3.14159*pow(Rp,3.0);
         mp = Vp*(phi_s*rho_solid + phi_l*rho_liquid);
 
-        // velocities
-        for (int d = 0; d < dim; d++) {
-          particles[ip].v[d] = particles[ip].v[d] +
-            solid_force[ip][d]*update->dt*nevery;
-        }
-        
         // joules
         double Ein = solid_force[ip][3];
 
@@ -442,11 +453,11 @@ void FixSolid::update_particle()
           // if sublimation rate is "slow", then can use current surface area
           double area = 3.14159*4.0*Rp*Rp;
           double del_mp = flux * area * update->dt * nevery;
-          mp -= del_mp;
+          mp_new = mp - del_mp;
 
           // new reduced particle size
-          if (mp > 0) {
-            Rp_new = pow( (mp/rho_solid)*0.75/3.14159, 1.0/3.0);
+          if (mp_new > 0) {
+            Rp_new = pow( (mp_new/rho_solid)*0.75/3.14159, 1.0/3.0);
 
             double Eflux = del_mp*dHsub;
             double Enet = Ein - Eflux;
@@ -454,14 +465,14 @@ void FixSolid::update_particle()
             // update particle temp based on net heat flux
             // based on sign of qnet, gas may or may not provide enough energy
             // .. to compensate energy lost due to phase change
-            Tp_new = Tp + Enet/csp/(mp+del_mp)*update->dt*nevery; // use old mass
+            Tp_new = Tp + Enet/csp/mp*update->dt*nevery; // use old mass
 
           // particle is gone
-          } else Rp_new = Tp_new = mp = 0.0;
-            
+          } else Rp_new = Tp_new = mp_new = 0.0;
 
         } else {
-          Tp_new =  Tp + Ein/csp/mp*update->dt*nevery;
+          mp_new = mp;
+          Tp_new = Tp + Ein/csp/mp*update->dt*nevery;
           Rp_new = Rp;
         }
 
@@ -470,11 +481,25 @@ void FixSolid::update_particle()
         solid_array[ip][2] = Tp_new;
         //solid_array[ip][3] = phi_s;
 
-        if (Rp_new > 0.0) {
+        // old
+        for (int d = 0; d < dim; d++) {
+          dj[d] -= mp*particles[ip].v[d];
+          dke -= 0.5*mp*(particles[ip].v[d]*particles[ip].v[d]);
+        }
+        dT -= csp*mp*Tp;
 
-          // update per-grid forces for outputting
+        // update velocities and new
+        for (int d = 0; d < dim; d++) {
+          particles[ip].v[d] += solid_force[ip][d]*update->dt*nevery;
+          dj[d] += mp_new*particles[ip].v[d];
+          dke += 0.5*mp_new*(particles[ip].v[d]*particles[ip].v[d]);
+        }
+        dT += csp*mp_new*Tp_new;
+
+        // update per-grid forces for outputting
+        if (Rp_new > 0.0) {
           array_grid[icell][0] += Rp_new;
-          array_grid[icell][1] += mp;
+          array_grid[icell][1] += mp_new;
           array_grid[icell][2] += Tp_new;
           array_grid[icell][3] += solid_force[ip][0];
           array_grid[icell][4] += solid_force[ip][1];
@@ -483,13 +508,56 @@ void FixSolid::update_particle()
           nsolid++;
         }
 
-      } // end check species
+        // find number of gas molecules
+        np--;
+      
+      // record total gas mass and momentum
+      } else if (conserve_flag) {
+        double imass = species[isp].mass;
+        mass_g += imass;
+        total_rdof += species[isp].rotdof;
+        Erot_g += particles[ip].erot;
+        for (int d = 0; d < dim; d++) {
+          U_g[d] += imass*particles[ip].v[d];
+          Eth_g  += 0.5*imass*(particles[ip].v[d]*particles[ip].v[d]);
+        }
+      }
 
       // reset forces and heat fluxes
       for (i = 0; i < 4; i++) solid_force[ip][i] = 0.0;
       ip = next[ip];
 
     } // end particle
+
+    // solid->gas to conserve momentum and energy
+    if (conserve_flag) {
+      double dU[3]; // new - old
+      for (int d = 0; d < dim; d++) {
+        dU[d] = -ofnum_rat*dj[d];
+        U_g[d] /= mass_g;
+      }
+      double dE = -0.5*mass_g*(dU[0]*dU[0]+dU[1]*dU[1]+dU[2]*dU[2]) -
+        ofnum_rat*(dke+dT);
+      double dEth  = dE * (3.0*np)/(3.0*np+total_rdof);
+      double dErot = dE - dEth;
+
+      Eth_g -= 0.5*(U_g[0]*U_g[0]+U_g[1]*U_g[1]+U_g[2]*U_g[2])*mass_g;
+      double phi = sqrt( (Eth_g+dEth)/Eth_g );
+
+      // update velocities and internal modes
+      ip = cinfo[icell].first;
+      while (ip >= 0) {
+        isp = particles[ip].ispecies;
+        if (isp != solid_species) {
+          for (int d = 0; d < dim; d++) {
+            particles[ip].v[d] =
+              (particles[ip].v[d]-U_g[d])*phi + (U_g[d]+dU[d]);
+          }
+          particles[ip].erot *= (dErot+Erot_g)/Erot_g;
+        }
+        ip = next[ip];
+      }
+    } // end conserve
 
     // update per-grid forces for outputting
     if (nsolid > 0)
@@ -665,18 +733,18 @@ void FixSolid::reallocate()
   if (grid->nlocal == nglocal) return;
 
   memory->destroy(array_grid);
-  memory->destroy(Fq_grid);
+  //memory->destroy(Fq_grid);
   //memory->destroy(cell_Tp);
   nglocal = grid->nlocal;
   memory->create(array_grid,nglocal,size_per_grid_cols,"fix/solid:array_grid");
-  memory->create(Fq_grid,nglocal,4,"fix/solid:Fq_grid");
+  //memory->create(Fq_grid,nglocal,4,"fix/solid:Fq_grid");
   //memory->create(cell_Tp,nglocal,2,"fix/solid:cell_Tp");
 
   // initialize values
   for (int i = 0; i < nglocal; i++) {
     for (int j = 0; j < size_per_grid_cols; j++) {
       array_grid[i][j] = 0.0;
-      Fq_grid[i][j] = 0.0;
+      //Fq_grid[i][j] = 0.0;
     }
     //for (int j = 0; j < 2; j++)
     //  cell_Tp[i][j] = 0.0;

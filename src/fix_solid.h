@@ -66,7 +66,7 @@ class FixSolid : public Fix {
 
   int index_solid_params, index_solid_force, index_solid_bulk;
   int npmax; // track upper bound for number of particles
-  double fnum_rat; // ratio of gas to solid particle Fnum
+  double fnum_rat, ofnum_rat; // ratio of gas to solid particle Fnum
 
   // for now, all solid particles have same initial properties
 
@@ -98,7 +98,7 @@ class FixSolid : public Fix {
   // for solid-to-gas coupling
 
   int conserve_flag; // account for momentum and energy change
-  double **Fq_grid; // record total momentum and energy change per-grid
+  //double **Fq_grid; // record total momentum and energy change per-grid
 
   void update_Fq_fm(); // free molecular force
   void update_Fq_emp(); // empirically derive force

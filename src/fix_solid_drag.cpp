@@ -193,10 +193,12 @@ void FixSolid::update_Fq_fm()
 
       // keep track of total force and energy change in cell
 
-      if (conserve_flag) {
-        for (int d = 0; d < 3; d++) Fq_grid[icell][d] += Fg[d]*update->dt;
-        Fq_grid[icell][3] += Eg*update->dt/csp/;
-      }
+      /*if (conserve_flag) {
+        Fq_grid[icell][0] += Fg[0]*update->dt;
+        Fq_grid[icell][1] += Fg[1]*update->dt;
+        Fq_grid[icell][2] += Fg[2]*update->dt;
+        Fq_grid[icell][3] += Eg*update->dt;
+      }*/
 
       // update per-particle forces
 
