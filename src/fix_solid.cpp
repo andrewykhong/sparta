@@ -406,7 +406,9 @@ void FixSolid::update_particle()
         phi_l = 1.0-phi_s;
         csp = phi_s*cp_solid + phi_l*cp_liquid;
 
-        double Vp = 4./3.*3.14159*pow(Rp,3.0);
+        double Vp;
+        if (dim == 2) Vp = 3.14159*pow(Rp,2.0);
+        else Vp = 4./3.*3.14159*pow(Rp,3.0);
         mp = Vp*(phi_s*rho_solid + phi_l*rho_liquid);
 
         // joules
@@ -530,6 +532,8 @@ void FixSolid::update_particle()
 
       // reset forces and heat fluxes
       for (i = 0; i < 4; i++) solid_force[ip][i] = 0.0;
+      // reset pressures and temperatures
+      for (i = 0; i < 5; i++) solid_bulk[ip][i] = 0.0;
       ip = next[ip];
 
     } // end particle

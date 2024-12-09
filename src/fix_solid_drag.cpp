@@ -100,7 +100,7 @@ void FixSolid::update_Fq_fm()
         mv[0] += mass*u[0];
         mv[1] += mass*u[1];
         mv[2] += mass*u[2];
-        mvsq = mass*(u[0]*u[0]+u[1]*u[1]+u[2]*u[2]);
+        mvsq += mass*(u[0]*u[0]+u[1]*u[1]+u[2]*u[2]);
       }
 
       ip = next[ip];
@@ -109,8 +109,15 @@ void FixSolid::update_Fq_fm()
     // calculate macroscopic vars
 
     T = mvsq - (mv[0]*mv[0] + mv[1]*mv[1] + mv[2]*mv[2])/totalmass;
-    p = T*update->fnum/3.0/cinfo[icell].volume*cinfo[icell].weight;
     T /= (3.0*update->boltz*(np-nsolid));
+    p = update->fnum*(np-nsolid)/cinfo[icell].volume
+        *update->boltz*T*cinfo[icell].weight;
+
+    //printf("n - %i / %i\n", np, nsolid);
+    //printf("n - drag: %4.3e\n", update->fnum*(np-nsolid)/cinfo[icell].volume);
+    //printf("p - drag: %4.3e\n", p);
+    //printf("T - drag: %4.3e\n", T);
+
     um[0] = mv[0]/totalmass;
     um[1] = mv[1]/totalmass;
     um[2] = mv[2]/totalmass;

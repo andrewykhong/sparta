@@ -557,7 +557,7 @@ void CreateParticles::create_local()
   // particle velocity = stream velocity + thermal velocity
 
   int *species = particle->mixture[imix]->species;
-  double *cummulative = particle->mixture[imix]->cummulative_wt;
+  double *cummulative = particle->mixture[imix]->cummulative;
   double *vstream = particle->mixture[imix]->vstream;
   double *vscale = particle->mixture[imix]->vscale;
   int nspecies = particle->mixture[imix]->nspecies;
@@ -827,7 +827,7 @@ void CreateParticles::create_local_twopass()
   // particle velocity = stream velocity + thermal velocity
 
   int *species = particle->mixture[imix]->species;
-  double *cummulative = particle->mixture[imix]->cummulative_wt;
+  double *cummulative = particle->mixture[imix]->cummulative;
   double *vstream = particle->mixture[imix]->vstream;
   double *vscale = particle->mixture[imix]->vscale;
   int nspecies = particle->mixture[imix]->nspecies;
