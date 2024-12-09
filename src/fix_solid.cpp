@@ -33,7 +33,7 @@ using namespace SPARTA_NS;
 using namespace MathConst;
 
 enum{INT,DOUBLE};                      // several files
-enum{NOMOVE,EULER,LANGEVIN};                  // type of solid particle move
+enum{EULER,LANGEVIN};                  // type of solid particle move
 enum{NOFORCE,GREEN,BURT,LOTH,SINGH};            // type of solid particle force
 
 // for compute_solid_grid
@@ -68,7 +68,7 @@ FixSolid::FixSolid(SPARTA *sparta, int narg, char **arg) :
   array_grid = NULL;
   //Fq_grid = NULL;
 
-  if (narg < 7) error->all(FLERR,"Not enough arguments for fix solid command");
+  if (narg < 3) error->all(FLERR,"Not enough arguments for fix solid command");
 
   // read in initial solid particle properties
 
@@ -157,6 +157,7 @@ FixSolid::FixSolid(SPARTA *sparta, int narg, char **arg) :
   pwhich = PZERO;
   uxp0 = uyp0 = uzp0 = 0.0;
   conserve_flag = 0;
+  reset_flag = 0;
 
   int iarg = 4;
   while (iarg < narg) {
@@ -181,9 +182,9 @@ FixSolid::FixSolid(SPARTA *sparta, int narg, char **arg) :
       if (iarg+1 > narg) error->all(FLERR,"Invalid fix solid command");
       move_type = EULER;
       iarg += 1;
-    } else if (strcmp(arg[iarg],"nomove") == 0) {
+    } else if (strcmp(arg[iarg],"reset") == 0) {
       if (iarg+4 > narg) error->all(FLERR,"Invalid fix solid command");
-      move_type = NOMOVE;
+      reset_flag = 1;
       uxp0 = atof(arg[iarg+1]);
       uyp0 = atof(arg[iarg+2]);
       uzp0 = atof(arg[iarg+3]);
@@ -264,11 +265,6 @@ void FixSolid::init()
     F1 = 1.0+4.0/9.0*(1.0-eps)*(1.0-alpha);
     F2 = (1.0-eps)*alpha*sqrt(MY_PI)/3.0;
     Q1 = (1.0-eps)*alpha;
-  } else if (force_type == BURT) { 
-    // alpha here is tau in Burt model
-    F1 = 1.0;
-    F2 = alpha*sqrt(2.0*MY_PI)/3.0;
-    Q1 = alpha;
   }
 
   fnum_rat = 1.0/particle->species[solid_species].specwt;
@@ -319,12 +315,13 @@ void FixSolid::end_of_step()
   if (!particle->sorted) particle->sort();
   reallocate(); // for outputting average force in each grid
 
-  if (move_type == NOMOVE) reset_velocities(1);
+  // For debugging
+  if (reset_flag) reset_velocities(1);
 
   // force model type
 
   if (force_type == GREEN || force_type == BURT) update_Fq_fm();
-  else if (force_type == LOTH || force_type == SINGH) update_Fq_emp();
+  //else if (force_type == LOTH || force_type == SINGH) update_Fq_emp();
 
   if (update->ntimestep % nevery) return;
 
@@ -332,8 +329,9 @@ void FixSolid::end_of_step()
 
   ndelete = 0;
   if (move_type == EULER) update_particle();
-  //else if (move_type == LANGEVIN) move_langevin();
-  else if (move_type == NOMOVE) reset_velocities(0); // zero out velocities
+
+  // For debugging
+  if (reset_flag) reset_velocities(0);
 
   // delete solid particles with no mass
 
@@ -382,7 +380,6 @@ void FixSolid::update_particle()
 
     np = cinfo[icell].count;
     if (np <= 0) continue;
-
     nsolid = 0;
 
     // calculate per-particle force and energy to conserver momentum and energy
@@ -413,7 +410,7 @@ void FixSolid::update_particle()
         mp = Vp*(phi_s*rho_solid + phi_l*rho_liquid);
 
         // joules
-        double Ein = solid_force[ip][3];
+        double Ein = solid_force[ip][3]*fnum_rat;
 
         // only assume particle can sublimate
 
@@ -474,27 +471,35 @@ void FixSolid::update_particle()
           mp_new = mp;
           Tp_new = Tp + Ein/csp/mp*update->dt*nevery;
           Rp_new = Rp;
-        }
+        } // end phase change check
 
-        // stpre new particle temp
-        solid_array[ip][1] = Rp_new;
-        solid_array[ip][2] = Tp_new;
-        //solid_array[ip][3] = phi_s;
+        // store new particle temp
+        if (!reset_flag) {
+          solid_array[ip][1] = Rp_new;
+          solid_array[ip][2] = Tp_new;
+          //solid_array[ip][3] = phi_s;
+        } else {
+          Rp_new = Rp;
+          Tp_new = Tp;
+          mp_new = mp;
+        }
 
         // old
         for (int d = 0; d < dim; d++) {
-          dj[d] -= mp*particles[ip].v[d];
-          dke -= 0.5*mp*(particles[ip].v[d]*particles[ip].v[d]);
+          dj[d] += mp*particles[ip].v[d];
+          dke += 0.5*mp*(particles[ip].v[d]*particles[ip].v[d]);
         }
-        dT -= csp*mp*Tp;
+        dT += csp*mp*Tp;
 
         // update velocities and new
         for (int d = 0; d < dim; d++) {
-          particles[ip].v[d] += solid_force[ip][d]*update->dt*nevery;
-          dj[d] += mp_new*particles[ip].v[d];
-          dke += 0.5*mp_new*(particles[ip].v[d]*particles[ip].v[d]);
+          particles[ip].v[d] += solid_force[ip][d]*update->dt*nevery*fnum_rat;
+          dj[d] -= mp_new*particles[ip].v[d];
+          dke -= 0.5*mp_new*(particles[ip].v[d]*particles[ip].v[d]);
         }
-        dT += csp*mp_new*Tp_new;
+        dT -= csp*mp_new*Tp_new;
+        //printf("mp: %4.3e; mp_new: %4.3e\n", mp, mp_new);
+        //printf("Ein: %4.3e, Told: %4.3e; Tnew: %4.3e\n", Ein, Tp, Tp_new);
 
         // update per-grid forces for outputting
         if (Rp_new > 0.0) {
@@ -521,7 +526,7 @@ void FixSolid::update_particle()
           U_g[d] += imass*particles[ip].v[d];
           Eth_g  += 0.5*imass*(particles[ip].v[d]*particles[ip].v[d]);
         }
-      }
+      } // end species check
 
       // reset forces and heat fluxes
       for (i = 0; i < 4; i++) solid_force[ip][i] = 0.0;
@@ -531,6 +536,7 @@ void FixSolid::update_particle()
 
     // solid->gas to conserve momentum and energy
     if (conserve_flag) {
+      printf("conserve\n");
       double dU[3]; // new - old
       for (int d = 0; d < dim; d++) {
         dU[d] = -ofnum_rat*dj[d];
@@ -540,9 +546,17 @@ void FixSolid::update_particle()
         ofnum_rat*(dke+dT);
       double dEth  = dE * (3.0*np)/(3.0*np+total_rdof);
       double dErot = dE - dEth;
-
-      Eth_g -= 0.5*(U_g[0]*U_g[0]+U_g[1]*U_g[1]+U_g[2]*U_g[2])*mass_g;
+      Eth_g = Eth_g - 0.5*(U_g[0]*U_g[0]+U_g[1]*U_g[1]+U_g[2]*U_g[2])*mass_g;
       double phi = sqrt( (Eth_g+dEth)/Eth_g );
+
+      printf("dke: %4.3e; dT: %4.3e; ofn: %4.3e\n", dke, dT, ofnum_rat);
+      printf("dE_U: %4.3e\n", -0.5*mass_g*(dU[0]*dU[0]+dU[1]*dU[1]+dU[2]*dU[2]));
+      printf("U_g: %4.3e, %4.3e, %4.3e; phi: %4.3e\n", U_g[0], U_g[1], U_g[2], phi);
+      printf("dU: %4.3e, %4.3e, %4.3e\n", dU[0], dU[1], dU[2]);
+      printf("Eth_g: %4.3e; dE: %4.3e; dEth: %4.3e; dErot: %4.3e\n",
+        Eth_g, dE, dEth, dErot);
+
+      if (dE<0) error->one(FLERR,"negative energy change");
 
       // update velocities and internal modes
       ip = cinfo[icell].first;
@@ -550,8 +564,10 @@ void FixSolid::update_particle()
         isp = particles[ip].ispecies;
         if (isp != solid_species) {
           for (int d = 0; d < dim; d++) {
+            //printf("ip: %i[%i] - %4.3e\n", particles[ip].v[d]);
             particles[ip].v[d] =
-              (particles[ip].v[d]-U_g[d])*phi + (U_g[d]+dU[d]);
+              (particles[ip].v[d]-U_g[d])*phi + (U_g[d]-dU[d]);
+            //printf("ip: %i[%i] - %4.3e\n", particles[ip].v[d]);
           }
           particles[ip].erot *= (dErot+Erot_g)/Erot_g;
         }
@@ -561,13 +577,15 @@ void FixSolid::update_particle()
 
     // update per-grid forces for outputting
     if (nsolid > 0)
-      for (i = 0; i < 7; i++)
+      for (i = 0; i < size_per_grid_cols; i++)
         array_grid[icell][i] /= nsolid;
     else 
-      for (i = 0; i < 7; i++)
+      for (i = 0; i < size_per_grid_cols; i++)
         array_grid[icell][i] = 0.0;
 
   } // end cells
+
+  //printf("end - update\n");
 
   // reset number of samples
   nsample = 0;
@@ -575,7 +593,7 @@ void FixSolid::update_particle()
 
 /* --------------------------------------------------------------------- */
 
-void FixSolid::reset_velocities(int reset_flag)
+void FixSolid::reset_velocities(int reset)
 {
   // grab various particle and grid quantities
 
@@ -597,7 +615,7 @@ void FixSolid::reset_velocities(int reset_flag)
     ip = cinfo[icell].first;
     while (ip >= 0) {
       if (particles[ip].ispecies == solid_species) {
-        if (reset_flag) {
+        if (reset) {
           particles[ip].v[0] = uxp0;
           particles[ip].v[1] = uyp0;
           particles[ip].v[2] = uzp0;
@@ -652,7 +670,7 @@ void FixSolid::read_solid()
   // skip blank lines or comment lines starting with '#'
   // all other lines must have NWORDS
 
-  int NWORDS = 8;
+  int NWORDS = 9;
   char **words = new char*[NWORDS];
   char line[MAXLINE],copy[MAXLINE];
 
@@ -678,8 +696,8 @@ void FixSolid::read_solid()
     cp_solid = atof(words[4]);
     cp_liquid = atof(words[5]);
     alpha = atof(words[6]);
-    eps = 1.0 - alpha;
-    dHsub = atof(words[7]);
+    eps = atof(words[7]);
+    dHsub = atof(words[8]);
   }
 
   delete [] words;

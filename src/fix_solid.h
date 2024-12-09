@@ -67,6 +67,7 @@ class FixSolid : public Fix {
   int index_solid_params, index_solid_force, index_solid_bulk;
   int npmax; // track upper bound for number of particles
   double fnum_rat, ofnum_rat; // ratio of gas to solid particle Fnum
+  int reset_flag; // for testing
 
   // for now, all solid particles have same initial properties
 
