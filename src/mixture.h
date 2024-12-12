@@ -74,6 +74,7 @@ class Mixture : protected Pointers {
   void init();
   int init_fraction(int *, double *, double *, double *);
   int init_fraction_wt(int *, double *, double *, double *);
+  void reset_cummulative_wt();
   void add_species_default(char *);
   int find_group(const char *);
   void write_restart(FILE *fp);

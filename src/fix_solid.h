@@ -71,7 +71,9 @@ class FixSolid : public Fix {
 
   // for now, all solid particles have same initial properties
 
-  double Rp0, mp0; // initial particle radius and mass
+  int shape; // shape of ice particle
+  double Rp0, Lp0; // initial particle radius and length
+  double theta0,phi0; // direction of normal in spherical (degrees)
   double rho_solid, rho_liquid; // density of ice and water
   double Tp0, cp_solid, cp_liquid; // initial temperature and specific heats
   double uxp0, uyp0, uzp0; // initial velocity of particle (for testing)
@@ -91,8 +93,7 @@ class FixSolid : public Fix {
   // for evaluating force based on green's function
 
   int nspmax;
-  double F1, F2; // prefactor for force defined by surface model
-  double Q1; // prefactor for heat flux defined by surface model
+  double c_adia, c_diff, c_spec; // precompute fractions 
   int *id; // solid particle id
   double *Tg, *Ug; // gas temperature, velocity
 

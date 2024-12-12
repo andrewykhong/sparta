@@ -317,42 +317,76 @@ int Mixture::init_fraction(int *fflag, double *fuser, double *f, double *c)
 
 int Mixture::init_fraction_wt(int *fflag, double *fuser, double *f, double *c)
 {
+  // first calculate fraction left for remaining species (if any)
+
   double sum = 0.0; // for recalculating fractions based on simulator count
-  double sum_f = 0.0;
   int nimplicit = 0;
-  int ispecies;
   for (int i = 0; i < nspecies; i++) {
-    ispecies = species[i];
-    if (fflag[i]) {
-      sum += fuser[i]*particle->species[ispecies].specwt;
-      sum_f += fuser[i];
-    } else nimplicit++;
+    if (fflag[i]) sum += fuser[i];
+    else nimplicit++;
   }
 
-  double remain = (1.0 - sum_f) / nimplicit;
-
-  // add missing species to sum
-
+  // compute unweighted fractions
+  double f_tmp[nspecies];
+  double sum_wt = 0.0;
+  double remain = (1.0 - sum) / nimplicit;
   for (int i = 0; i < nspecies; i++) {
-    ispecies = species[i];
-    if (!fflag[i]) sum += remain*particle->species[ispecies].specwt;
+    int ispecies = species[i];
+    if (fflag[i]) f_tmp[i] = fuser[i] / particle->species[ispecies].specwt;
+    else f_tmp[i] = remain / nimplicit / particle->species[ispecies].specwt;
+    sum_wt += f_tmp[i];
   }
 
-  // set new fractions and normalize by weighted sum
-  // also compute cumulatuve function
+  // normalize and add to cumulative
 
   for (int i = 0; i < nspecies; i++) {
-    ispecies = species[i];
-    if (fflag[i])
-      f[i] = fuser[i]*particle->species[ispecies].specwt/sum;
-    else
-      f[i] = remain*particle->species[ispecies].specwt/sum;
+    f[i] = f_tmp[i]/sum_wt;
     if (i) c[i] = c[i-1] + f[i];
     else c[i] = f[i];
   }
-
   if (nspecies) c[nspecies-1] = 1.0;
+
+  // DEBUG
+  //for (int i = 0; i < nspecies; i++) {
+  //  printf("[%i]: %4.3e; %4.3e\n", i ,f[i], c[i]);
+  //}
+
   return 0;
+}
+
+/* ----------------------------------------------------------------------
+   same as above but fractions and cummulative of simulators
+------------------------------------------------------------------------- */
+
+void Mixture::reset_cummulative_wt()
+{
+  printf("reset\n");
+  // first calculate fraction left for remaining species (if any)
+
+  double f_tmp[nspecies];
+  double sum_wt = 0.0;
+  for (int i = 0; i < nspecies; i++) {
+    int ispecies = species[i];
+    f_tmp[i] = fraction[i] / particle->species[ispecies].specwt;
+    sum_wt += f_tmp[i];
+  }
+
+  // normalize and add to cumulative
+
+  for (int i = 0; i < nspecies; i++) {
+    fraction_wt[i] = f_tmp[i]/sum_wt;
+    printf("f[%i]: %4.3e; %4.3e\n", i ,fraction[i], f_tmp[i]);
+    if (i) cummulative_wt[i] = cummulative_wt[i-1] + fraction_wt[i];
+    else cummulative_wt[i] = fraction_wt[i];
+  }
+  if (nspecies) cummulative_wt[nspecies-1] = 1.0;
+
+  // DEBUG
+  for (int i = 0; i < nspecies; i++) {
+    printf("c[%i]: %4.3e\n", i, cummulative_wt[i]);
+  }
+
+  error->one(FLERR,"ck mix");
 }
 
 /* ----------------------------------------------------------------------

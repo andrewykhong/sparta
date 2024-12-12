@@ -557,7 +557,7 @@ void CreateParticles::create_local()
   // particle velocity = stream velocity + thermal velocity
 
   int *species = particle->mixture[imix]->species;
-  double *cummulative = particle->mixture[imix]->cummulative;
+  double *cummulative = particle->mixture[imix]->cummulative_wt;
   double *vstream = particle->mixture[imix]->vstream;
   double *vscale = particle->mixture[imix]->vscale;
   int nspecies = particle->mixture[imix]->nspecies;
@@ -777,7 +777,6 @@ void CreateParticles::create_local_twopass()
       ispecies = mix->species[i];
       double_np += N*mix->fraction[i]/particle->species[ispecies].specwt;
     }
-
     np = static_cast<int> (double_np);
 
   }
@@ -827,7 +826,7 @@ void CreateParticles::create_local_twopass()
   // particle velocity = stream velocity + thermal velocity
 
   int *species = particle->mixture[imix]->species;
-  double *cummulative = particle->mixture[imix]->cummulative;
+  double *cummulative = particle->mixture[imix]->cummulative_wt;
   double *vstream = particle->mixture[imix]->vstream;
   double *vscale = particle->mixture[imix]->vscale;
   int nspecies = particle->mixture[imix]->nspecies;
@@ -996,7 +995,6 @@ void CreateParticles::create_local_twopass()
                              temp_rot,temp_vib,vstream);
     }
   }
-
   // clean up
 
   memory->destroy(ncreate_values);

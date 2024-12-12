@@ -40,6 +40,7 @@ enum{NOFORCE,GREEN,BURT,LOTH,SINGH};            // type of solid particle force
 
 enum{SIZE,MASS,TEMP,FORCEX,FORCEY,FORCEZ,HEAT};
 enum{PZERO,AVERAGE};
+enum{SPHERE,DISC,CYLINDER};
 
 #define DELTADELETE 1024
 #define MAXLINE 1024
@@ -207,7 +208,7 @@ FixSolid::FixSolid(SPARTA *sparta, int narg, char **arg) :
   if (index_solid_params >= 0 || index_solid_force >= 0 || index_solid_bulk >= 0)
     error->all(FLERR,"Fix solid_drag custom attribute already exists");
 
-  index_solid_params = particle->add_custom((char *) "solid_params",DOUBLE,5);
+  index_solid_params = particle->add_custom((char *) "solid_params",DOUBLE,8);
   index_solid_force = particle->add_custom((char *) "solid_force",DOUBLE,4);
   index_solid_bulk = particle->add_custom((char *) "solid_bulk",DOUBLE,6);
 
@@ -259,12 +260,22 @@ void FixSolid::init()
   npmax = DELTAPART;
   memory->create(id,npmax,"soliddrag:id");
 
+  // molecules can interact with particles in three ways:
+  // 1) specular (eps)
+  // 2) diffuse (1-eps)(alpha)
+  // 3) adiabatice (1-eps)(1-alpha)
   // pre-compute prefactors for force and heat flux delta functions
 
   if (force_type == GREEN) {
-    F1 = 1.0+4.0/9.0*(1.0-eps)*(1.0-alpha);
-    F2 = (1.0-eps)*alpha*sqrt(MY_PI)/3.0;
-    Q1 = (1.0-eps)*alpha;
+    c_diff = (1.0-eps)*alpha;
+    c_spec = eps;
+    c_adia = (1.0-eps)*(1.0-alpha);
+
+    // normalize so sum is 1
+    double sum = c_diff + c_spec + c_adia;
+    c_diff /= sum;
+    c_spec /= sum;
+    c_adia /= sum;
   }
 
   fnum_rat = 1.0/particle->species[solid_species].specwt;
@@ -295,6 +306,9 @@ void FixSolid::update_custom(int index, double,
   solid_array[index][1] = Rp0; // radius
   solid_array[index][2] = Tp0; // temperature
   solid_array[index][3] = 1.0; // volume fraction which is solid
+  solid_array[index][4] = Lp0; // length (for cylinder)
+  solid_array[index][5] = theta0; // polar angle (to find normal)
+  solid_array[index][6] = phi0; // azithumal angle (to find normal)
 
   solid_force[index][0] = 0.0; // Fx
   solid_force[index][1] = 0.0; // Fy
@@ -320,7 +334,7 @@ void FixSolid::end_of_step()
 
   // force model type
 
-  if (force_type == GREEN || force_type == BURT) update_Fq_fm();
+  if (force_type == GREEN) update_Fq_fm();
   //else if (force_type == LOTH || force_type == SINGH) update_Fq_emp();
 
   if (update->ntimestep % nevery) return;
@@ -328,14 +342,16 @@ void FixSolid::end_of_step()
   // update particles velocitis (and position if langevin)
 
   ndelete = 0;
-  if (move_type == EULER) update_particle();
-
-  // For debugging
-  if (reset_flag) reset_velocities(0);
+  if (move_type == EULER && !reset_flag) update_particle();
 
   // delete solid particles with no mass
 
   if (ndelete) particle->compress_reactions(ndelete,dellist);
+
+  // For debugging
+  if (reset_flag) reset_velocities(0);
+
+
 }
 
 /* ---------------------------------------------------------------------- */
@@ -513,7 +529,8 @@ void FixSolid::update_particle()
           array_grid[icell][5] += solid_force[ip][2];
           array_grid[icell][6] += solid_force[ip][3];
           nsolid++;
-        }
+        // delete particle
+        } else dellist[ndelete++] = ip;
 
         // find number of gas molecules
         np--;
@@ -540,7 +557,7 @@ void FixSolid::update_particle()
 
     // solid->gas to conserve momentum and energy
     if (conserve_flag) {
-      printf("conserve\n");
+      //printf("conserve\n");
       double dU[3]; // new - old
       for (int d = 0; d < dim; d++) {
         dU[d] = -ofnum_rat*dj[d];
@@ -552,13 +569,6 @@ void FixSolid::update_particle()
       double dErot = dE - dEth;
       Eth_g = Eth_g - 0.5*(U_g[0]*U_g[0]+U_g[1]*U_g[1]+U_g[2]*U_g[2])*mass_g;
       double phi = sqrt( (Eth_g+dEth)/Eth_g );
-
-      printf("dke: %4.3e; dT: %4.3e; ofn: %4.3e\n", dke, dT, ofnum_rat);
-      printf("dE_U: %4.3e\n", -0.5*mass_g*(dU[0]*dU[0]+dU[1]*dU[1]+dU[2]*dU[2]));
-      printf("U_g: %4.3e, %4.3e, %4.3e; phi: %4.3e\n", U_g[0], U_g[1], U_g[2], phi);
-      printf("dU: %4.3e, %4.3e, %4.3e\n", dU[0], dU[1], dU[2]);
-      printf("Eth_g: %4.3e; dE: %4.3e; dEth: %4.3e; dErot: %4.3e\n",
-        Eth_g, dE, dEth, dErot);
 
       if (dE<0) error->one(FLERR,"negative energy change");
 
@@ -674,9 +684,9 @@ void FixSolid::read_solid()
   // skip blank lines or comment lines starting with '#'
   // all other lines must have NWORDS
 
-  int NWORDS = 9;
-  char **words = new char*[NWORDS];
-  char line[MAXLINE],copy[MAXLINE];
+  int MAXWORDS = 13;
+  char **words = new char*[MAXWORDS];
+  char line[MAXLINE];
 
   while (fgets(line,MAXLINE,fp)) {
     int pre = strspn(line," \t\n\r");
@@ -684,7 +694,7 @@ void FixSolid::read_solid()
 
     // check line length
     int nwords = wordcount(line,words);
-    if (nwords != NWORDS)
+    if (nwords != MAXWORDS)
       error->one(FLERR,"Incorrect line format in solid species file");
 
     char isp[16];
@@ -692,16 +702,40 @@ void FixSolid::read_solid()
     solid_species = particle->find_species(isp);
     if (solid_species < 0) error->all(FLERR,"Fix solid drag species does not exist");
 
-    Rp0 = atof(words[1]);
-    rho_solid = atof(words[2]);
-    rho_liquid = atof(words[3]);
-    if (dim == 2) mp0 = 3.141598*Rp0*Rp0*rho_solid;
-    else mp0 = 4./3.*3.14159*pow(Rp0,3.0)*rho_solid;
-    cp_solid = atof(words[4]);
-    cp_liquid = atof(words[5]);
-    alpha = atof(words[6]);
-    eps = atof(words[7]);
-    dHsub = atof(words[8]);
+    if (strcmp(words[1],"sphere") == 0) shape = SPHERE;
+    else if (strcmp(words[1],"disc") == 0) shape = DISC;
+    else if (strcmp(words[1],"cylinder") == 0) shape = CYLINDER;
+    else error->all(FLERR,"Fix solid does not recognize shape");
+    
+    // geometry of particle (some may be ignored based on shape)
+    Rp0     = atof(words[2]);
+    Lp0     = atof(words[3]);
+    theta0   = atof(words[4]);
+    phi0     = atof(words[5]);
+
+    if (theta0 < 0 || theta0 > 180.0)
+      error->all(FLERR,"Fix solid: polar angle invalid");
+    if (phi0 < 0 || phi0 > 360)
+      error->all(FLERR,"Fix solid: azimuth angle invalid");
+
+    // convert to radians
+    theta0 *= MY_PI/180.0;
+    phi0 *= MY_PI/180.0;
+
+    // material properties
+    int iarg = 6;
+    rho_solid  = atof(words[iarg++]);
+    rho_liquid = atof(words[iarg++]);
+    cp_solid   = atof(words[iarg++]);
+    cp_liquid  = atof(words[iarg++]);
+    dHsub      = atof(words[iarg++]);
+    alpha      = atof(words[iarg++]);
+    eps        = atof(words[iarg++]);
+
+    //printf("Rp: %4.3e; Lp: %4.3e; theta: %4.3e; phi: %4.3e\n", 
+    //  Rp0, Lp0, theta0, phi0);
+    //printf("rho: %4.3e; cp: %4.3e; alpha: %4.3e; eps: %4.3e; dH: %4.3e\n\n",
+    //  rho_solid, cp_solid, alpha, eps, dHsub);
   }
 
   delete [] words;
