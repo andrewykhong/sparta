@@ -59,6 +59,8 @@ void FixSolid::update_Fq_fm()
   double prefactor; // prefactor
   double Fi[3], Fs[3], Fd[3], Fa[3]; // prefactors for forces
   double Qi, Qs, Qd, Qa; // prefactors for heat
+  double erot;
+  int nrot;
 
   double Fgtotal[3], Egtotal; // total force and energy change
 
@@ -154,6 +156,8 @@ void FixSolid::update_Fq_fm()
 
           // account for difference in species weight
           u = particles[ip].v;
+          erot = particles[ip].erot;
+          nrot = species[ispecies].rotdof;
 
           c[0] = u[0]-up[0];
           c[1] = u[1]-up[1];
@@ -164,6 +168,9 @@ void FixSolid::update_Fq_fm()
           if (force_type == GREEN) {
             // mean thermal speed of outgoing particles
             cp = sqrt(2.0*update->boltz*Tp/mass);
+            // energy exchange due to rotational energy only pertinent for 
+            // ... diffuse contribution
+            Eg += c_diff*cmag*(erot - (0.5*nrot)*update->boltz*Tp);
 
             if (shape == SPHERE) {
               csx = Rp*Rp*MY_PI;
@@ -201,7 +208,6 @@ void FixSolid::update_Fq_fm()
               if(abs(norm[2]) < 1e-16) norm[2] = 0.0;
 
               // cos(theta) should always be a positive value
-              double cos_tht = -(norm[0]*c[0]+norm[1]*c[1]+norm[2]*c[2])/cmag;
               double orth[3]; // yhat
               orth[0] = cos(theta)*cos(phi);
               orth[1] = sin(theta)*sin(phi);
@@ -209,37 +215,53 @@ void FixSolid::update_Fq_fm()
               if(abs(orth[0]) < 1e-16) orth[0] = 0.0;
               if(abs(orth[1]) < 1e-16) orth[1] = 0.0;
               if(abs(orth[2]) < 1e-16) orth[2] = 0.0;
-              double sin_tht = sqrt(1.0 - cos_tht*cos_tht);
+
+
+              double orth1[3]; // zhat
+              orth1[0] = -sin(theta);
+              orth1[1] = cos(theta);
+              orth1[2] = 0.0;
+              if(abs(orth1[0]) < 1e-16) orth1[0] = 0.0;
+              if(abs(orth1[1]) < 1e-16) orth1[1] = 0.0;
+              if(abs(orth1[2]) < 1e-16) orth1[2] = 0.0;
+
+              // need opposite sign for one associated with normal
+              double alpha = -(norm[0]*c[0]+norm[1]*c[1]+norm[2]*c[2])/cmag;
 
               // use other face if negative
-              if (cos_tht < 0) {
+              if (alpha < 0) {
                 norm[0] = -norm[0];
                 norm[1] = -norm[1];
                 norm[2] = -norm[2];
 
+                // only need to rotate around one of the in-plane vectors
                 orth[0] = -orth[0];
                 orth[1] = -orth[1];
                 orth[2] = -orth[2];
               }
-              cos_tht = abs(cos_tht);
+
+              // direction cosines for in-plane vectors
+              double beta  = (orth[0]*c[0]+orth[1]*c[1]+orth[2]*c[2])/cmag;
+              double gamma = (orth1[0]*c[0]+orth1[1]*c[1]+orth1[2]*c[2])/cmag;
+              alpha = abs(alpha);
 
               for (int d = 0; d < 3; d++) {
-                Fi[d] = cmag*cos_tht*c[d];
-                Fs[d] = -cmag*cmag*cos_tht*(cos_tht*norm[d]+sin_tht*orth[d]);
-                Fd[d] = -0.5*sqrt(MY_PI)*cp*cmag*cos_tht*norm[d];
-                Fa[d] = -2.0/3.0*cmag*cmag*cos_tht*norm[d];
+                Fi[d] = cmag*alpha*c[d];
+                Fs[d] = -cmag*cmag*alpha*(alpha*norm[d]+beta*orth[d]+gamma*orth1[d]);
+                Fd[d] = -0.5*sqrt(MY_PI)*cp*cmag*alpha*norm[d];
+                Fa[d] = -2.0/3.0*cmag*cmag*alpha*norm[d];
               }
 
-              Qi = cmag*cmag*cmag*cos_tht;
-              Qs = -cmag*cmag*cmag*cos_tht;
-              Qd = -2.0*cp*cp*cmag*cos_tht;
-              Qa = -cmag*cmag*cmag*cos_tht;
+              Qi = cmag*cmag*cmag*alpha;
+              Qs = -cmag*cmag*cmag*alpha;
+              Qd = -2.0*cp*cp*cmag*alpha;
+              Qa = -cmag*cmag*cmag*alpha;
 
               for (int d = 0; d < dim; d++) 
                 Fg[d] += mass*csx*(Fi[d]+c_spec*Fs[d]+c_diff*Fd[d]+c_adia*Fa[d]);
               Eg    += 0.5*mass*csx*(Qi+c_spec*Qs+c_diff*Qd+c_adia*Qa);
 
-            } 
+            }
 
             // also add the half cylinder portion as well
             if (shape == CYLINDER) {
@@ -273,13 +295,6 @@ void FixSolid::update_Fq_fm()
                 Fg[d] += mass*csx*(Fi[d]+c_spec*Fs[d]+c_diff*Fd[d]+c_adia*Fa[d]);
               Eg += 0.5*mass*csx*(Qi+c_spec*Qs+c_diff*Qd+c_adia*Qa);
             }
-
-            //Fg[0] += mass*cx*(F1*cmag+F2*cp);
-            //Fg[1] += mass*cy*(F1*cmag+F2*cp);
-            //if (dim == 3)
-            //  Fg[2] += mass*cz*(F1*cmag+F2*cp);
-            //Eg    += mass*cmag*Q1*(0.5*cmag*cmag-cp*cp);
-            //Eg += cmag*Q1*(erot - (0.5*nrot)*update->boltz*Tp);
           }
         }
         ip = next[ip];
