@@ -265,7 +265,8 @@ void FixSolid::update_Fq_fm()
 
             // also add the half cylinder portion as well
             if (shape == CYLINDER) {
-              csx = 2.0*Rp*Lp;
+              csx = Rp*Lp;
+
               // normal aligned with axis (zhat in paper)
               double norm[3];
               norm[0] = cos(theta)*sin(phi);
@@ -275,15 +276,36 @@ void FixSolid::update_Fq_fm()
               if(abs(norm[1]) < 1e-16) norm[1] = 0.0;
               if(abs(norm[2]) < 1e-16) norm[2] = 0.0;
 
+              double orth[3]; // yhat
+              orth[0] = cos(theta)*cos(phi);
+              orth[1] = sin(theta)*sin(phi);
+              orth[2] = -sin(phi);
+              if(abs(orth[0]) < 1e-16) orth[0] = 0.0;
+              if(abs(orth[1]) < 1e-16) orth[1] = 0.0;
+              if(abs(orth[2]) < 1e-16) orth[2] = 0.0;
+
+              double orth1[3]; // xhat
+              orth1[0] = -sin(theta);
+              orth1[1] = cos(theta);
+              orth1[2] = 0.0;
+              if(abs(orth1[0]) < 1e-16) orth1[0] = 0.0;
+              if(abs(orth1[1]) < 1e-16) orth1[1] = 0.0;
+              if(abs(orth1[2]) < 1e-16) orth1[2] = 0.0;
+
+              // direction cosines
+              double alpha = -(norm[0]*c[0]+norm[1]*c[1]+norm[2]*c[2])/cmag;
+              double beta  = (orth[0]*c[0]+orth[1]*c[1]+orth[2]*c[2])/cmag;
+              double gamma = (orth1[0]*c[0]+orth1[1]*c[1]+orth1[2]*c[2])/cmag;
+
               // cos(theta) should always be a positive value
               double cZ = norm[0]*c[0]+norm[1]*c[1]+norm[2]*c[2];
               double sq_c = sqrt(cmag*cmag-cZ*cZ);
 
               for (int d = 0; d < 3; d++) {
-                Fi[d] = sq_c*c[d];
-                Fs[d] = sq_c/3.0*(c[d]-4.0*cZ*norm[d]);
-                Fd[d] = pow(MY_PI,1.5)/8.0*cp*(c[d]-cZ*norm[d]);;
-                Fa[d] = MY_PI/6.0*cmag*(c[d]-cZ*norm[d]);;
+                Fi[d] = 2.0*sq_c*c[d];
+                Fs[d] = 2.0/3.0*sq_c*(c[d]-4.0*cZ*norm[d]);
+                Fd[d] = pow(MY_PI,1.5)/4.0*cp*(c[d]-cZ*norm[d]);;
+                Fa[d] = MY_PI/3.0*cmag*(c[d]-cZ*norm[d]);;
               }
 
               Qi = cmag*cmag*sq_c;
@@ -341,6 +363,68 @@ void FixSolid::update_Fq_fm()
 
 void FixSolid::update_Fq_emp()
 {
-  error->all(FLERR,"Empirical drag laws not included yet");
+  // grab various particle and grid quantities
+
+  Particle::OnePart *particles = particle->particles;
+  Particle::Species *species = particle->species;
+  int *next = particle->next;
+  Grid::ChildInfo *cinfo = grid->cinfo;
+
+  // solid particle related vectors
+
+  double **solid_array = particle->edarray[particle->ewhich[index_solid_params]];
+  double **solid_force = particle->edarray[particle->ewhich[index_solid_force]];
+  double **solid_bulk  = particle->edarray[particle->ewhich[index_solid_bulk]];
+
+  int i,j,k,icell,ip,is; // dummy indices
+  int ispecies, sid; // species of particle i; particle indices of solid particles
+  int np, nsolid; // number of total simulators; number of solid simulators
+  double Rp,mp,Tp,csp; // particle radius, mass, temperature, and specific heat
+  double Lp, theta, phi; // particle length and direction of norm
+  double c[3],cmag; // thermal velocity of gas and solid particles
+  double *u,*up;  // velocity of gas and solid particles
+  double mv[3], mvsq, um[3]; // drift velocity (zero if no charge or gravity) 
+  double Fg[3],Eg; // force and energy as defined by Green function
+  double totalmass; // for calculating temperature
+  double mass,T,p; // gas particle mass, gas temperature and pressure
+  double csx,cp; // solid particle cross section and thermal velocity
+  double frat; // ratio of gas to solid weight
+  double prefactor; // prefactor
+  double Fi[3], Fs[3], Fd[3], Fa[3]; // prefactors for forces
+  double Qi, Qs, Qd, Qa; // prefactors for heat
+  double erot;
+  int nrot;
+
+  double Fgtotal[3], Egtotal; // total force and energy change
+
+  for (icell = 0; icell < nglocal; icell++) {
+
+    // DEBUG
+    if (reset_flag) {
+      array_grid[icell][0] = 0.0;
+      array_grid[icell][1] = 0.0;
+      array_grid[icell][2] = 0.0;
+      array_grid[icell][3] = 0.0;
+      array_grid[icell][4] = 0.0;
+      array_grid[icell][5] = 0.0;
+      array_grid[icell][6] = 0.0;
+    }
+
+    np = cinfo[icell].count;
+    if (np <= 1) continue;
+
+    // only need ids
+
+    if (np > npmax) {
+      while (np > npmax) npmax += DELTAPART;
+      memory->destroy(id);
+      memory->create(id,npmax,"soliddrag:id");
+    }
+
+
+  } // end cells
+
+  // number of samples
+  nsample++;
   return;
 }

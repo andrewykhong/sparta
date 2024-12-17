@@ -57,8 +57,7 @@ class FixSolid : public Fix {
   int *argindex;             // which column from compute or fix to access
   int *value2index;          // index of compute,fix,variable
   int *post_process;         // 1 if need compute->post_process() on value
-  double **cell_Tp;          // array of tally quantities, cells by ntotal
-                             // can be multiple tally quantities per value
+  double **Sn;               // custom particle surf
 
   // index for custom per-particle solid propeties
   // custom array for solid params : radius, mass, specific heat, temperature
@@ -71,6 +70,7 @@ class FixSolid : public Fix {
 
   // for now, all solid particles have same initial properties
 
+  int nsurfs; // number of particle surface elements
   int shape; // shape of ice particle
   double Rp0, Lp0; // initial particle radius and length
   double theta0,phi0; // direction of normal in spherical (degrees)
@@ -112,6 +112,7 @@ class FixSolid : public Fix {
 
   void reallocate();
   void read_solid();
+  void read_surf(FILE *f);
   int wordcount(char *, char **);
 
   // random num

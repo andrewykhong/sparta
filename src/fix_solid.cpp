@@ -28,19 +28,20 @@
 #include "random_knuth.h"
 #include "compute.h"
 #include "fix.h"
+#include "math_extra.h"
 
 using namespace SPARTA_NS;
 using namespace MathConst;
 
 enum{INT,DOUBLE};                      // several files
 enum{EULER,LANGEVIN};                  // type of solid particle move
-enum{NOFORCE,GREEN,BURT,LOTH,SINGH};            // type of solid particle force
+enum{NOFORCE,GREEN,LOTH,SINGH};            // type of solid particle force
 
 // for compute_solid_grid
 
 enum{SIZE,MASS,TEMP,FORCEX,FORCEY,FORCEZ,HEAT};
 enum{PZERO,AVERAGE};
-enum{SPHERE,DISC,CYLINDER};
+enum{SPHERE,DISC,CYLINDER,CUSTOM};
 
 #define DELTADELETE 1024
 #define MAXLINE 1024
@@ -193,9 +194,17 @@ FixSolid::FixSolid(SPARTA *sparta, int narg, char **arg) :
     } else if (strcmp(arg[iarg],"green") == 0) {
       force_type = GREEN;
       iarg++;
+    } else if (strcmp(arg[iarg],"loth") == 0) {
+      force_type = LOTH;
+      iarg++;
     } else if (strcmp(arg[iarg],"conserve") == 0) { 
       conserve_flag = 1;
       iarg++;
+    } else if (strcmp(arg[iarg],"surf") == 0) { 
+      FILE *fsurf = fopen(arg[iarg+1],"r");
+      if (!fsurf) error->one(FLERR,"Particle surface file not found");
+      read_surf(fsurf);
+      iarg += 2;
     } else error->all(FLERR,"Invalid fix solid command");
   }
 
@@ -227,8 +236,8 @@ FixSolid::~FixSolid()
   memory->destroy(id);
   memory->destroy(dellist);
   memory->destroy(array_grid);
+  memory->destroy(Sn);
   //memory->destroy(Fq_grid);
-  //memory->destroy(cell_Tp);
 
   //delete [] argindex;
   //delete [] value2index;
@@ -335,7 +344,7 @@ void FixSolid::end_of_step()
   // force model type
 
   if (force_type == GREEN) update_Fq_fm();
-  //else if (force_type == LOTH || force_type == SINGH) update_Fq_emp();
+  else if (force_type == LOTH) update_Fq_emp();
 
   if (update->ntimestep % nevery) return;
 
@@ -701,6 +710,154 @@ double FixSolid::get_particle_property(int which, int ip)
 }
 
 /* ----------------------------------------------------------------------
+   reallocate arrays if nglocal has changed
+   called by init() and whenever grid changes
+------------------------------------------------------------------------- */
+
+void FixSolid::read_surf(FILE *fin)
+{
+  // read file line by line
+  // skip blank lines or comment lines starting with '#'
+  // all other lines must have NWORDS
+
+  int MAXWORDS = 5;
+  char **words = new char*[MAXWORDS];
+  char line[MAXLINE];
+
+
+  int npts, ntris;
+  int ipt = 0;
+  int itri = 0;
+  double **tmp_pts;
+  int **tmp_tris;
+
+  // flag for header
+  int header = 0;
+
+  // read file
+  tmp_pts = NULL;
+  tmp_tris = NULL;
+  while (fgets(line,MAXLINE,fin)) {
+    int pre = strspn(line," \t\n\r");
+    if (pre == strlen(line) || line[pre] == '#') continue;
+
+    // check line length
+    int nwords = wordcount(line,words);
+
+    //printf("%s %s\n", words[0], words[1]);
+
+    // read number of points
+    if (header == 0) {
+      if (strcmp(words[1],"points") != 0) continue;
+        //error->all(FLERR,"Fix solid: First line expected to be number of points");
+      npts = atoi(words[0]);
+
+      memory->destroy(tmp_pts);
+      memory->create(tmp_pts,npts,3,"fix/solid:tmp_pts");
+      header++;
+    // read number of triangles
+    } else if (header == 1){
+      if (strcmp(words[1],"triangles") != 0)
+        error->all(FLERR,"Fix solid: Second line expected to be number of triangles");
+      ntris = atoi(words[0]);
+
+      memory->destroy(tmp_tris);
+      memory->create(tmp_tris,ntris,3,"fix/solid:tmp_tris");
+      header++;
+    // skip section headers
+    } else if (strcmp(words[0],"Points") == 0 || strcmp(words[0],"Triangles") == 0) {
+      continue;
+    } else if (ipt < npts) {
+      int pt_id = atoi(words[0]) - 1; // ids start with 1
+      tmp_pts[pt_id][0] = atof(words[1]);
+      tmp_pts[pt_id][1] = atof(words[2]);
+      tmp_pts[pt_id][2] = atof(words[3]);
+      ipt++;
+    } else if (itri < ntris) {
+      // triangle ids not needed
+      tmp_tris[itri][0] = atoi(words[1])-1;
+      tmp_tris[itri][1] = atoi(words[2])-1;
+      tmp_tris[itri][2] = atoi(words[3])-1;
+      itri++;
+    }
+  }
+
+  //printf("read file\n");
+
+  // create surface list
+  nsurfs = ntris;
+  Sn = NULL;
+  memory->destroy(Sn);
+  memory->create(Sn,nsurfs,3,"fix/solid:Sn");
+
+  int ind;
+  double p1[3], p2[3], p3[3];
+  double delta12[3], delta13[3], delta23[3], norm[3];
+  for (int i = 0; i < ntris; i++) {
+    // grab vertices
+    ind = tmp_tris[i][0];
+    p1[0] = tmp_pts[ind][0];
+    p1[1] = tmp_pts[ind][1];
+    p1[2] = tmp_pts[ind][2];
+
+    ind = tmp_tris[i][1];
+    p2[0] = tmp_pts[ind][0];
+    p2[1] = tmp_pts[ind][1];
+    p2[2] = tmp_pts[ind][2];
+
+    ind = tmp_tris[i][2];
+    p3[0] = tmp_pts[ind][0];
+    p3[1] = tmp_pts[ind][1];
+    p3[2] = tmp_pts[ind][2];
+
+    //printf("tri: %i: %i, %i, %i\n", i, tmp_tris[i][0], tmp_tris[i][1], tmp_tris[i][2]);
+    //printf("p1: %i: %4.3e, %4.3e, %4.3e\n", i, p1[0], p1[1], p1[2]);
+    //printf("p2: %i: %4.3e, %4.3e, %4.3e\n", i, p2[0], p2[1], p2[2]);
+    //printf("p3: %i: %4.3e, %4.3e, %4.3e\n", i, p3[0], p3[1], p3[2]);
+    //error->one(FLERR,"ck");
+
+    MathExtra::sub3(p2,p1,delta12);
+    MathExtra::sub3(p3,p1,delta13);
+    MathExtra::sub3(p3,p2,delta23);
+    MathExtra::cross3(delta12,delta13,norm);
+    MathExtra::norm3(norm);
+
+    // convert to spherical coordinates
+    double theta = atan(norm[1]/norm[0]);
+    if (theta != theta) theta = 0.0; // x- and y- component are zero
+    double phi = acos(norm[2]);
+
+    // find area with Heron's formula
+    double l1 = MathExtra::len3(delta12);
+    double l2 = MathExtra::len3(delta13);
+    double l3 = MathExtra::len3(delta23);
+  
+    double s = 0.5*(l1+l2+l3);
+    double area = sqrt(s*(s-l1)*(s-l2)*(s-l3));
+
+    //printf("norm: %4.3e, %4.3e, %4.3e\n", norm[0],norm[1],norm[2]);
+
+    // store
+    Sn[i][0] = theta;
+    Sn[i][1] = phi;
+    Sn[i][2] = area;
+
+    //printf("theta: %4.3e; phi: %4.3e; A: %4.3e\n", theta,phi,area);
+  }
+
+  //for (int i = 0; i < nsurfs; i++)
+  //  printf("theta: %4.3e; phi: %4.3e; A: %4.3e\n", Sn[i][0],Sn[i][1],Sn[i][2]);
+
+  // destroy
+
+  memory->destroy(tmp_pts);
+  memory->destroy(tmp_tris);
+  delete [] words;
+
+  fclose(fp);
+}
+
+/* ----------------------------------------------------------------------
    read list of species defined in species file
    store info in filespecies and nfile
    only invoked by proc 0
@@ -733,6 +890,7 @@ void FixSolid::read_solid()
     if (strcmp(words[1],"sphere") == 0) shape = SPHERE;
     else if (strcmp(words[1],"disc") == 0) shape = DISC;
     else if (strcmp(words[1],"cylinder") == 0) shape = CYLINDER;
+    else if (strcmp(words[1],"custom") == 0) shape = CUSTOM;
     else error->all(FLERR,"Fix solid does not recognize shape");
     
     // geometry of particle (some may be ignored based on shape)
@@ -832,6 +990,6 @@ void FixSolid::reallocate()
     }
     //for (int j = 0; j < 2; j++)
     //  cell_Tp[i][j] = 0.0;
-}
   }
+}
 
