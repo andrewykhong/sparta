@@ -108,11 +108,16 @@ class FixSolid : public Fix {
   void move_langevin();
   void reset_velocities(int);
 
+  void Fsphere(const double *, const double, const double, double *, double);
+  void Fdisc(const double *, const double, const double, const double, const double, double *, double);
+  void Fcyl(const double *, const double, const double, const double, const double, double *, double);
+  void Fcustom(const double *, const double, const double, double *, double);
+
   // misc functions
 
   void reallocate();
   void read_solid();
-  void read_surf(FILE *f);
+  void read_surf(FILE *f, double, double, double, double);
   int wordcount(char *, char **);
 
   // random num

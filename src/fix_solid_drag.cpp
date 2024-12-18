@@ -1,25 +1,26 @@
-#include "stdlib.h"
-#include "string.h"
-#include "fix_solid.h"
+#include "compute.h"
 #include "comm.h"
-#include "update.h"
-#include "grid.h"
 #include "domain.h"
-#include "particle.h"
-#include "modify.h"
-#include "memory.h"
 #include "error.h"
+#include "fix.h"
+#include "fix_solid.h"
+#include "grid.h"
 #include "math_const.h"
+#include "math_extra.h"
+#include "memory.h"
+#include "modify.h"
+#include "particle.h"
 #include "random_mars.h"
 #include "random_knuth.h"
-#include "compute.h"
-#include "fix.h"
+#include "stdlib.h"
+#include "string.h"
+#include "update.h"
 
 using namespace SPARTA_NS;
 using namespace MathConst;
 
-enum{NOFORCE,GREEN,BURT,LOTH,SINGH};            // type of solid particle force
-enum{SPHERE,DISC,CYLINDER};
+enum{NOFORCE,GREEN,LOTH,SINGH};
+enum{SPHERE,DISC,CYLINDER,CUSTOM};
 
 #define INVOKED_PER_GRID 16
 
@@ -123,17 +124,7 @@ void FixSolid::update_Fq_fm()
 
     if (T < 0 || p < 0) error->one(FLERR,"Negative temp or pressure");
 
-    //printf("n - %i / %i\n", np, nsolid);
-    //printf("nden_g: %4.3e\n", update->fnum*(np-nsolid)/cinfo[icell].volume*particle->species[0].specwt);
-    //printf("nden_s: %4.3e\n", update->fnum*(nsolid)/cinfo[icell].volume*particle->species[1].specwt);
-    //printf("spectwt: %4.3e, %4.3e\n", particle->species[0].specwt,particle->species[1].specwt);
-    //printf("p - drag: %4.3e\n", p);
-    //printf("T - drag: %4.3e\n", T);
-    //error->one(FLERR,"Ck");
-
-    um[0] = mv[0]/totalmass;
-    um[1] = mv[1]/totalmass;
-    um[2] = mv[2]/totalmass;
+    for (int d = 0; d < dim; d++)  um[d] = mv[d]/totalmass;
 
     // calculate incident forces and heat flux
 
@@ -159,9 +150,7 @@ void FixSolid::update_Fq_fm()
           erot = particles[ip].erot;
           nrot = species[ispecies].rotdof;
 
-          c[0] = u[0]-up[0];
-          c[1] = u[1]-up[1];
-          c[2] = u[2]-up[2];
+          for (int d = 0; d < dim; d++) c[d] = u[d]-up[d];
           if (dim == 2) c[2] = 0.0;
           cmag = sqrt(c[0]*c[0]+c[1]*c[1]+c[2]*c[2]);
 
@@ -172,150 +161,34 @@ void FixSolid::update_Fq_fm()
             // ... diffuse contribution
             Eg += c_diff*cmag*(erot - (0.5*nrot)*update->boltz*Tp);
 
+            double F[3], Q;
             if (shape == SPHERE) {
               csx = Rp*Rp*MY_PI;
-              for (int d = 0; d < 3; d++) {
-                // incident
-                Fi[d] = cmag*c[d];
-                // specular
-                Fs[d] = 0.0;
-                // diffuse
-                Fd[d] = sqrt(MY_PI)/3.0*cp*c[d];
-                // adiabatic
-                Fa[d] = 4.0/9.0*cmag*c[d];
-              }
-              // heat
-              Qi = cmag*cmag*cmag;
-              Qs = -cmag*cmag*cmag;
-              Qd = -2.0*cp*cp*cmag;
-              Qa = -cmag*cmag*cmag;
-
-              for (int d = 0; d < dim; d++) 
-                Fg[d] += mass*csx*(Fi[d]+c_spec*Fs[d]+c_diff*Fd[d]+c_adia*Fa[d]);
-              Eg    += 0.5*mass*csx*(Qi+c_spec*Qs+c_diff*Qd+c_adia*Qa);
-
-            // two contributions from each face
-            // only need to consider face where c . x is negative
-            } else if (shape == DISC || shape == CYLINDER) {
+              Fsphere(c, cmag, cp, F, Q);
+              for (int d = 0; d < dim; d++) Fg[d] += mass*csx*F[d];
+              Eg += 0.5*mass*csx*Q;
+            } else if (shape == DISC) {
               csx = Rp*Rp*MY_PI;
-              // first facee
-              double norm[3];
-              norm[0] = cos(theta)*sin(phi);
-              norm[1] = sin(theta)*sin(phi);
-              norm[2] = cos(phi);
-              if(abs(norm[0]) < 1e-16) norm[0] = 0.0;
-              if(abs(norm[1]) < 1e-16) norm[1] = 0.0;
-              if(abs(norm[2]) < 1e-16) norm[2] = 0.0;
+              Fdisc(c, cmag, cp, theta, phi, F, Q);
+              for (int d = 0; d < dim; d++) Fg[d] += mass*csx*F[d];
+              Eg += 0.5*mass*csx*Q;
+            } else if (shape == CYLINDER) {
+              // disc part first
+              csx = Rp*Rp*MY_PI;
+              Fdisc(c, cmag, cp, theta, phi, F, Q);
+              for (int d = 0; d < dim; d++) Fg[d] += mass*csx*F[d];
+              Eg += 0.5*mass*csx*Q;
 
-              // cos(theta) should always be a positive value
-              double orth[3]; // yhat
-              orth[0] = cos(theta)*cos(phi);
-              orth[1] = sin(theta)*sin(phi);
-              orth[2] = -sin(phi);
-              if(abs(orth[0]) < 1e-16) orth[0] = 0.0;
-              if(abs(orth[1]) < 1e-16) orth[1] = 0.0;
-              if(abs(orth[2]) < 1e-16) orth[2] = 0.0;
-
-
-              double orth1[3]; // zhat
-              orth1[0] = -sin(theta);
-              orth1[1] = cos(theta);
-              orth1[2] = 0.0;
-              if(abs(orth1[0]) < 1e-16) orth1[0] = 0.0;
-              if(abs(orth1[1]) < 1e-16) orth1[1] = 0.0;
-              if(abs(orth1[2]) < 1e-16) orth1[2] = 0.0;
-
-              // need opposite sign for one associated with normal
-              double alpha = -(norm[0]*c[0]+norm[1]*c[1]+norm[2]*c[2])/cmag;
-
-              // use other face if negative
-              if (alpha < 0) {
-                norm[0] = -norm[0];
-                norm[1] = -norm[1];
-                norm[2] = -norm[2];
-
-                // only need to rotate around one of the in-plane vectors
-                orth[0] = -orth[0];
-                orth[1] = -orth[1];
-                orth[2] = -orth[2];
-              }
-
-              // direction cosines for in-plane vectors
-              double beta  = (orth[0]*c[0]+orth[1]*c[1]+orth[2]*c[2])/cmag;
-              double gamma = (orth1[0]*c[0]+orth1[1]*c[1]+orth1[2]*c[2])/cmag;
-              alpha = abs(alpha);
-
-              for (int d = 0; d < 3; d++) {
-                Fi[d] = cmag*alpha*c[d];
-                Fs[d] = -cmag*cmag*alpha*(alpha*norm[d]+beta*orth[d]+gamma*orth1[d]);
-                Fd[d] = -0.5*sqrt(MY_PI)*cp*cmag*alpha*norm[d];
-                Fa[d] = -2.0/3.0*cmag*cmag*alpha*norm[d];
-              }
-
-              Qi = cmag*cmag*cmag*alpha;
-              Qs = -cmag*cmag*cmag*alpha;
-              Qd = -2.0*cp*cp*cmag*alpha;
-              Qa = -cmag*cmag*cmag*alpha;
-
-              for (int d = 0; d < dim; d++) 
-                Fg[d] += mass*csx*(Fi[d]+c_spec*Fs[d]+c_diff*Fd[d]+c_adia*Fa[d]);
-              Eg    += 0.5*mass*csx*(Qi+c_spec*Qs+c_diff*Qd+c_adia*Qa);
-
-            }
-
-            // also add the half cylinder portion as well
-            if (shape == CYLINDER) {
+              // then half cylinder
               csx = Rp*Lp;
-
-              // normal aligned with axis (zhat in paper)
-              double norm[3];
-              norm[0] = cos(theta)*sin(phi);
-              norm[1] = sin(theta)*sin(phi);
-              norm[2] = cos(phi);
-              if(abs(norm[0]) < 1e-16) norm[0] = 0.0;
-              if(abs(norm[1]) < 1e-16) norm[1] = 0.0;
-              if(abs(norm[2]) < 1e-16) norm[2] = 0.0;
-
-              double orth[3]; // yhat
-              orth[0] = cos(theta)*cos(phi);
-              orth[1] = sin(theta)*sin(phi);
-              orth[2] = -sin(phi);
-              if(abs(orth[0]) < 1e-16) orth[0] = 0.0;
-              if(abs(orth[1]) < 1e-16) orth[1] = 0.0;
-              if(abs(orth[2]) < 1e-16) orth[2] = 0.0;
-
-              double orth1[3]; // xhat
-              orth1[0] = -sin(theta);
-              orth1[1] = cos(theta);
-              orth1[2] = 0.0;
-              if(abs(orth1[0]) < 1e-16) orth1[0] = 0.0;
-              if(abs(orth1[1]) < 1e-16) orth1[1] = 0.0;
-              if(abs(orth1[2]) < 1e-16) orth1[2] = 0.0;
-
-              // direction cosines
-              double alpha = -(norm[0]*c[0]+norm[1]*c[1]+norm[2]*c[2])/cmag;
-              double beta  = (orth[0]*c[0]+orth[1]*c[1]+orth[2]*c[2])/cmag;
-              double gamma = (orth1[0]*c[0]+orth1[1]*c[1]+orth1[2]*c[2])/cmag;
-
-              // cos(theta) should always be a positive value
-              double cZ = norm[0]*c[0]+norm[1]*c[1]+norm[2]*c[2];
-              double sq_c = sqrt(cmag*cmag-cZ*cZ);
-
-              for (int d = 0; d < 3; d++) {
-                Fi[d] = 2.0*sq_c*c[d];
-                Fs[d] = 2.0/3.0*sq_c*(c[d]-4.0*cZ*norm[d]);
-                Fd[d] = pow(MY_PI,1.5)/4.0*cp*(c[d]-cZ*norm[d]);;
-                Fa[d] = MY_PI/3.0*cmag*(c[d]-cZ*norm[d]);;
-              }
-
-              Qi = cmag*cmag*sq_c;
-              Qs = -cmag*cmag*sq_c;
-              Qd = -2.0*cp*cp*sq_c;
-              Qa = -cmag*cmag*sq_c;
-
-              for (int d = 0; d < dim; d++) 
-                Fg[d] += mass*csx*(Fi[d]+c_spec*Fs[d]+c_diff*Fd[d]+c_adia*Fa[d]);
-              Eg += 0.5*mass*csx*(Qi+c_spec*Qs+c_diff*Qd+c_adia*Qa);
+              Fcyl(c, cmag, cp, theta, phi, F, Q);
+              for (int d = 0; d < dim; d++) Fg[d] += mass*csx*F[d];
+              Eg += 0.5*mass*csx*Q;
+            } else if (shape == CUSTOM) {
+              Fcustom(c, cmag, cp, F, Q);
+              // cross section included in previous calc.
+              for (int d = 0; d < dim; d++) Fg[d] += mass*F[d];
+              Eg += 0.5*mass*Q;
             }
           }
         }
@@ -428,3 +301,245 @@ void FixSolid::update_Fq_emp()
   nsample++;
   return;
 }
+
+/* ----------------------------------------------------------------------
+   Sphere Green's Function
+---------------------------------------------------------------------- */
+
+void FixSolid::Fsphere(const double *c, const double cmag, const double cp, double *F, double Q)
+{
+  double Fi[3], Fs[3], Fd[3], Fa[3];
+  double Qi, Qs, Qd, Qa;
+
+  for (int d = 0; d < 3; d++) {
+    // incident
+    Fi[d] = cmag*c[d];
+    // specular
+    Fs[d] = 0.0;
+    // diffuse
+    Fd[d] = sqrt(MY_PI)/3.0*cp*c[d];
+    // adiabatic
+    Fa[d] = 4.0/9.0*cmag*c[d];
+  }
+
+  // heat
+  Qi = cmag*cmag*cmag;
+  Qs = -cmag*cmag*cmag;
+  Qd = -2.0*cp*cp*cmag;
+  Qa = -cmag*cmag*cmag;
+
+  for (int d = 0; d < dim; d++) 
+    F[d] = (Fi[d]+c_spec*Fs[d]+c_diff*Fd[d]+c_adia*Fa[d]);
+  Q = 0.5*(Qi+c_spec*Qs+c_diff*Qd+c_adia*Qa);
+  return;
+}
+
+/* ----------------------------------------------------------------------
+   Disc Green's Function
+---------------------------------------------------------------------- */
+
+void FixSolid::Fdisc(const double *c, const double cmag, const double cp, const double theta, const double phi, double *F, double Q)
+{
+  double Fi[3], Fs[3], Fd[3], Fa[3];
+  double Qi, Qs, Qd, Qa;
+
+  // first facee
+  double norm[3];
+  norm[0] = cos(theta)*sin(phi);
+  norm[1] = sin(theta)*sin(phi);
+  norm[2] = cos(phi);
+  if(abs(norm[0]) < 1e-16) norm[0] = 0.0;
+  if(abs(norm[1]) < 1e-16) norm[1] = 0.0;
+  if(abs(norm[2]) < 1e-16) norm[2] = 0.0;
+
+  // cos(theta) should always be a positive value
+  double orth[3]; // yhat
+  orth[0] = cos(theta)*cos(phi);
+  orth[1] = sin(theta)*sin(phi);
+  orth[2] = -sin(phi);
+  if(abs(orth[0]) < 1e-16) orth[0] = 0.0;
+  if(abs(orth[1]) < 1e-16) orth[1] = 0.0;
+  if(abs(orth[2]) < 1e-16) orth[2] = 0.0;
+
+  double orth1[3]; // zhat
+  orth1[0] = -sin(theta);
+  orth1[1] = cos(theta);
+  orth1[2] = 0.0;
+  if(abs(orth1[0]) < 1e-16) orth1[0] = 0.0;
+  if(abs(orth1[1]) < 1e-16) orth1[1] = 0.0;
+  if(abs(orth1[2]) < 1e-16) orth1[2] = 0.0;
+
+  // need opposite sign for one associated with normal
+  double alpha = -(norm[0]*c[0]+norm[1]*c[1]+norm[2]*c[2])/cmag;
+
+  // use other face if negative
+  if (alpha < 0) {
+    norm[0] = -norm[0];
+    norm[1] = -norm[1];
+    norm[2] = -norm[2];
+
+    // only need to rotate around one of the in-plane vectors
+    orth[0] = -orth[0];
+    orth[1] = -orth[1];
+    orth[2] = -orth[2];
+  }
+
+  // direction cosines for in-plane vectors
+  double beta  = (orth[0]*c[0]+orth[1]*c[1]+orth[2]*c[2])/cmag;
+  double gamma = (orth1[0]*c[0]+orth1[1]*c[1]+orth1[2]*c[2])/cmag;
+  alpha = abs(alpha);
+
+  for (int d = 0; d < 3; d++) {
+    Fi[d] = cmag*alpha*c[d];
+    Fs[d] = -cmag*cmag*alpha*(alpha*norm[d]+beta*orth[d]+gamma*orth1[d]);
+    Fd[d] = -0.5*sqrt(MY_PI)*cp*cmag*alpha*norm[d];
+    Fa[d] = -2.0/3.0*cmag*cmag*alpha*norm[d];
+  }
+
+  Qi = cmag*cmag*cmag*alpha;
+  Qs = -cmag*cmag*cmag*alpha;
+  Qd = -2.0*cp*cp*cmag*alpha;
+  Qa = -cmag*cmag*cmag*alpha;
+
+  for (int d = 0; d < dim; d++) 
+    F[d] = (Fi[d]+c_spec*Fs[d]+c_diff*Fd[d]+c_adia*Fa[d]);
+  Q = 0.5*(Qi+c_spec*Qs+c_diff*Qd+c_adia*Qa);
+  return;
+}
+
+/* ----------------------------------------------------------------------
+   Cylinder Green's Function
+---------------------------------------------------------------------- */
+
+void FixSolid::Fcyl(const double *c, const double cmag, const double cp, const double theta, const double phi, double *F, double Q)
+{
+  double Fi[3], Fs[3], Fd[3], Fa[3];
+  double Qi, Qs, Qd, Qa;
+
+  // first facee
+  double norm[3];
+  norm[0] = cos(theta)*sin(phi);
+  norm[1] = sin(theta)*sin(phi);
+  norm[2] = cos(phi);
+  if(abs(norm[0]) < 1e-16) norm[0] = 0.0;
+  if(abs(norm[1]) < 1e-16) norm[1] = 0.0;
+  if(abs(norm[2]) < 1e-16) norm[2] = 0.0;
+
+  // cos(theta) should always be a positive value
+  double orth[3]; // yhat
+  orth[0] = cos(theta)*cos(phi);
+  orth[1] = sin(theta)*sin(phi);
+  orth[2] = -sin(phi);
+  if(abs(orth[0]) < 1e-16) orth[0] = 0.0;
+  if(abs(orth[1]) < 1e-16) orth[1] = 0.0;
+  if(abs(orth[2]) < 1e-16) orth[2] = 0.0;
+
+  double orth1[3]; // zhat
+  orth1[0] = -sin(theta);
+  orth1[1] = cos(theta);
+  orth1[2] = 0.0;
+  if(abs(orth1[0]) < 1e-16) orth1[0] = 0.0;
+  if(abs(orth1[1]) < 1e-16) orth1[1] = 0.0;
+  if(abs(orth1[2]) < 1e-16) orth1[2] = 0.0;
+
+  // need opposite sign for one associated with normal
+  double alpha = -(norm[0]*c[0]+norm[1]*c[1]+norm[2]*c[2])/cmag;
+  double beta  = (orth[0]*c[0]+orth[1]*c[1]+orth[2]*c[2])/cmag;
+  double gamma = (orth1[0]*c[0]+orth1[1]*c[1]+orth1[2]*c[2])/cmag;
+
+  // cos(theta) should always be a positive value
+  double cZ = norm[0]*c[0]+norm[1]*c[1]+norm[2]*c[2];
+  double sq_c = sqrt(cmag*cmag-cZ*cZ);
+
+  for (int d = 0; d < 3; d++) {
+    Fi[d] = 2.0*sq_c*c[d];
+    Fs[d] = 2.0/3.0*sq_c*(c[d]-4.0*cZ*norm[d]);
+    Fd[d] = pow(MY_PI,1.5)/4.0*cp*(c[d]-cZ*norm[d]);;
+    Fa[d] = MY_PI/3.0*cmag*(c[d]-cZ*norm[d]);;
+  }
+
+  Qi = cmag*cmag*sq_c;
+  Qs = -cmag*cmag*sq_c;
+  Qd = -2.0*cp*cp*sq_c;
+  Qa = -cmag*cmag*sq_c;
+
+  for (int d = 0; d < dim; d++) 
+    F[d] = (Fi[d]+c_spec*Fs[d]+c_diff*Fd[d]+c_adia*Fa[d]);
+  Q = 0.5*(Qi+c_spec*Qs+c_diff*Qd+c_adia*Qa);
+  return;
+}
+
+/* ----------------------------------------------------------------------
+   Cylinder Green's Function
+---------------------------------------------------------------------- */
+
+void FixSolid::Fcustom(const double *c, const double cmag, const double cp, double *F, double Q)
+{
+  double Fi[3], Fs[3], Fd[3], Fa[3];
+  double Qi, Qs, Qd, Qa;
+
+  double norm[3], orth[3], orth1[3];
+  double theta, phi, dS;  
+  double alpha, beta, gamma;
+
+  double chat[3];
+  for (int d = 0; d < 3; d++) {
+    chat[d] = c[d]/cmag;
+    Fi[d] = Fs[d] = Fd[d] = Fa[d] = 0.0;
+  }
+
+  // iterate thru all surfs
+  for (int isurf = 0; isurf < nsurfs; isurf++) {
+    theta = Sn[isurf][0];
+    phi = Sn[isurf][1];
+    dS = Sn[isurf][2];
+
+    // grab surface element normal
+    norm[0] = cos(theta)*sin(phi);
+    norm[1] = sin(theta)*sin(phi);
+    norm[2] = cos(phi);
+    if(abs(norm[0]) < 1e-16) norm[0] = 0.0;
+    if(abs(norm[1]) < 1e-16) norm[1] = 0.0;
+    if(abs(norm[2]) < 1e-16) norm[2] = 0.0;
+
+    orth[0] = cos(theta)*cos(phi);
+    orth[1] = sin(theta)*sin(phi);
+    orth[2] = -sin(phi);
+    if(abs(orth[0]) < 1e-16) orth[0] = 0.0;
+    if(abs(orth[1]) < 1e-16) orth[1] = 0.0;
+    if(abs(orth[2]) < 1e-16) orth[2] = 0.0;
+
+    orth1[0] = -sin(theta);
+    orth1[1] = cos(theta);
+    orth1[2] = 0.0;
+    if(abs(orth1[0]) < 1e-16) orth1[0] = 0.0;
+    if(abs(orth1[1]) < 1e-16) orth1[1] = 0.0;
+    if(abs(orth1[2]) < 1e-16) orth1[2] = 0.0;
+
+    // direction cosines
+    alpha = MathExtra::dot3(norm,chat);
+    beta = MathExtra::dot3(orth,chat);
+    gamma = MathExtra::dot3(orth1,chat);    
+
+    for (int d = 0; d < 3; d++) {
+      Fi[d] -= cmag*c[d]*MIN(alpha,0.0)*dS;
+      Fs[d] -= cmag*cmag*MIN(alpha,0.0)*dS*(alpha*norm[d]-beta*orth[d]-gamma*orth1[d]);
+      Fd[d] += cmag*cp*MIN(alpha,0.0)*dS*norm[d];
+      Fa[d] += cmag*cmag*MIN(alpha,0.0)*dS*norm[d];
+    }
+
+    Qi -= alpha*pow(cmag,3.0)*dS;
+    Qs += alpha*pow(cmag,3.0)*dS;
+    Qd += alpha*cmag*cp*cp*dS;
+    Qa += alpha*cmag*cmag*cmag*dS;
+  }
+
+  // includes cross section
+  for (int d = 0; d < dim; d++) 
+    F[d] = (Fi[d]+c_spec*Fs[d]+sqrt(3.14159)*0.5*c_diff*Fd[d]+2.0/3.0*c_adia*Fa[d]);
+  Q = 0.5*(Qi+c_spec*Qs+c_diff*Qd+c_adia*Qa);
+
+  return;
+}
+
+

@@ -36,15 +36,17 @@ using namespace MathConst;
 enum{INT,DOUBLE};                      // several files
 enum{EULER,LANGEVIN};                  // type of solid particle move
 enum{NOFORCE,GREEN,LOTH,SINGH};            // type of solid particle force
+enum{SPHERE,DISC,CYLINDER,CUSTOM};
 
 // for compute_solid_grid
 
 enum{SIZE,MASS,TEMP,FORCEX,FORCEY,FORCEZ,HEAT};
 enum{PZERO,AVERAGE};
-enum{SPHERE,DISC,CYLINDER,CUSTOM};
+
 
 #define DELTADELETE 1024
 #define MAXLINE 1024
+#define SMALLANGLE 1E-10
 
 /* ---------------------------------------------------------------------- */
 
@@ -68,6 +70,7 @@ FixSolid::FixSolid(SPARTA *sparta, int narg, char **arg) :
   size_per_grid_cols = 7;
   nglocal = 0;
   array_grid = NULL;
+  Sn = NULL;
   //Fq_grid = NULL;
 
   if (narg < 3) error->all(FLERR,"Not enough arguments for fix solid command");
@@ -202,11 +205,20 @@ FixSolid::FixSolid(SPARTA *sparta, int narg, char **arg) :
       iarg++;
     } else if (strcmp(arg[iarg],"surf") == 0) { 
       FILE *fsurf = fopen(arg[iarg+1],"r");
+      // axis of rotation
+      double ex = atof(arg[iarg+2]);
+      double ey = atof(arg[iarg+3]);
+      double ez = atof(arg[iarg+4]);
+      // angle of rotation (in deg)
+      double rtheta = atof(arg[iarg+5]);
       if (!fsurf) error->one(FLERR,"Particle surface file not found");
-      read_surf(fsurf);
-      iarg += 2;
+      read_surf(fsurf,ex,ey,ez,rtheta);
+      iarg += 6;
     } else error->all(FLERR,"Invalid fix solid command");
   }
+
+  // check surface specificed if using custom
+  if (shape == CUSTOM && !Sn) error->one(FLERR,"Fix solid: No surface provided");
 
   // check if custom particle parameters exist
 
@@ -397,6 +409,10 @@ void FixSolid::update_particle()
 
   int nsolid;
 
+  // FOR DEBUG
+  double dmom_part[3], dE_part;
+  double dmom_gas[3], dE_gas;
+
   for (icell = 0; icell < nglocal; icell++) {
 
     // reset array_grid (for output)
@@ -407,12 +423,10 @@ void FixSolid::update_particle()
     if (np <= 0) continue;
     nsolid = 0;
 
-    // calculate per-particle force and energy to conserver momentum and energy
+    // manually check conservation
 
-    //dFx = Fq_grid[icell][0];
-    //dFy = Fq_grid[icell][1];
-    //dFz = Fq_grid[icell][2];
-    //dE  = Fq_grid[icell][3];
+    dmom_gas[0] = dmom_gas[1] = dmom_gas[2] = dE_gas = 0.0;
+    dmom_part[0] = dmom_part[1] = dmom_part[2] = dE_part = 0.0;
 
     // update only solid particles
 
@@ -518,35 +532,29 @@ void FixSolid::update_particle()
           Tp_new = Tp;
           mp_new = mp;
         }
-        //printf("Tp: %4.3e -> %4.3e from %4.3e\n", Tp, Tp_new, Ein);
 
-        // old
+        Fd[0] = 1;
+
+        // record change in momentum and kinetic energy
         for (int d = 0; d < dim; d++) {
-          dj[d] -= mp*particles[ip].v[d]; // for dU
+          // old
+          dj[d] -= mp*particles[ip].v[d];
           dke -= 0.5*mp*(particles[ip].v[d]*particles[ip].v[d]);
-        }
-
-        // update velocities
-        for (int d = 0; d < dim; d++)
+          // update
           particles[ip].v[d] += Fd[d]*update->dt*nevery;
-
-        // new
-        for (int d = 0; d < dim; d++) {
+          // new
           dj[d] += mp_new*particles[ip].v[d];
           dke += 0.5*mp_new*(particles[ip].v[d]*particles[ip].v[d]);
         }
 
-        //printf("old: %4.3e, %4.3e, %4.3e\n", csp, mp, Tp);
-        //printf("dT_old: %4.3e\n", csp*mp*Tp);
-        //printf("new: %4.3e, %4.3e, %4.3e\n", csp, mp_new, Tp_new);
-        //printf("dT_new: %4.3e\n", csp*mp_new*Tp_new);
-        //printf("dT: %4.3e; mp: %4.3e; mp_new: %4.3e\n", Tp_new - Tp, mp, mp_new);
+        // record change in temperature
         dT += (csp*mp_new*Tp_new-csp*mp*Tp);
-        //printf("net dT: %4.3e; dke: %4.3e\n", dT, dke);
 
         //printf("mp: %4.3e; mp_new: %4.3e\n", mp, mp_new);
         //printf("Ein: %4.3e, Told: %4.3e; Tnew: %4.3e\n", Ein, Tp, Tp_new);
-        //printf("dj: %4.3e, %4.3e, %4.3e; dT: %4.3e\n", dj[0], dj[1], dj[2], dT);
+        //printf("dj: %4.3e, %4.3e, %4.3e; dke: %4.3e; dT: %4.3e\n",
+        //  dj[0], dj[1], dj[2], dke, dT);
+        //error->one(FLERR,"ck");
 
         // update per-grid forces for outputting
         if (Rp_new > 0.0) {
@@ -714,8 +722,26 @@ double FixSolid::get_particle_property(int which, int ip)
    called by init() and whenever grid changes
 ------------------------------------------------------------------------- */
 
-void FixSolid::read_surf(FILE *fin)
+void FixSolid::read_surf(FILE *fin, double ex, double ey, double ez, double rtheta)
 {
+  
+  // normalize unit vector
+  double emag = sqrt(ex*ex+ey*ey+ez*ez);
+  double e[3];
+  if (emag == 0.0) {
+    e[0] = 1.0;
+    e[1] = e[2] = 0.0;
+    rtheta = 0.0;
+  } else {
+    e[0] /= emag;
+    e[1] /= emag;
+    e[2] /= emag;
+  }
+
+  // convert to radians
+  double mypi = 3.1415926535;
+  rtheta *= mypi/180.0;
+
   // read file line by line
   // skip blank lines or comment lines starting with '#'
   // all other lines must have NWORDS
@@ -723,7 +749,6 @@ void FixSolid::read_surf(FILE *fin)
   int MAXWORDS = 5;
   char **words = new char*[MAXWORDS];
   char line[MAXLINE];
-
 
   int npts, ntris;
   int ipt = 0;
@@ -792,7 +817,7 @@ void FixSolid::read_surf(FILE *fin)
 
   int ind;
   double p1[3], p2[3], p3[3];
-  double delta12[3], delta13[3], delta23[3], norm[3];
+  double delta12[3], delta13[3], delta23[3], norm[3], new_norm[3];
   for (int i = 0; i < ntris; i++) {
     // grab vertices
     ind = tmp_tris[i][0];
@@ -821,10 +846,30 @@ void FixSolid::read_surf(FILE *fin)
     MathExtra::sub3(p3,p2,delta23);
     MathExtra::cross3(delta12,delta13,norm);
     MathExtra::norm3(norm);
+    if(abs(norm[0]) <= SMALLANGLE) norm[0] = 0.0;
+    if(abs(norm[1]) <= SMALLANGLE) norm[1] = 0.0;
+    if(abs(norm[2]) <= SMALLANGLE) norm[2] = 0.0;
+    //printf("in norm: %4.3e, %4.3e, %4.3e\n", norm[0], norm[1], norm[2]);
+
+    // rotate using Rodrigues axis rotation 
+    if (rtheta) {
+      double en_cross[3]; // cross product between rotation axis and norm
+      MathExtra::cross3(e,norm,en_cross);
+      double en_dot = MathExtra::dot3(e,norm); // dot product between them
+      for (int d = 0; d < 3; d++)
+        norm[d] = norm[d]*cos(rtheta)+en_cross[d]*sin(rtheta) +
+                  e[d]*en_dot*(1-cos(rtheta));
+      error->one(FLERR,"rotat");
+    }
 
     // convert to spherical coordinates
     double theta = atan(norm[1]/norm[0]);
     if (theta != theta) theta = 0.0; // x- and y- component are zero
+    if (norm[0] < 0 && norm[1] >= 0) theta += mypi;
+    else if (norm[0] < 0 && norm[1] < 0) theta -= mypi;
+    else if (abs(norm[0]) == 0.0 && norm[1] > 0) theta = mypi*0.5;
+    else if (abs(norm[0]) == 0.0 && norm[1] < 0) theta = -mypi*0.5;
+
     double phi = acos(norm[2]);
 
     // find area with Heron's formula
@@ -835,7 +880,20 @@ void FixSolid::read_surf(FILE *fin)
     double s = 0.5*(l1+l2+l3);
     double area = sqrt(s*(s-l1)*(s-l2)*(s-l3));
 
-    //printf("norm: %4.3e, %4.3e, %4.3e\n", norm[0],norm[1],norm[2]);
+    // make sure norm is consistent
+    //new_norm[0] = cos(theta)*sin(phi);
+    //new_norm[1] = sin(theta)*sin(phi);
+    //new_norm[2] = cos(phi);
+    //if(abs(new_norm[0]) <= SMALLANGLE) new_norm[0] = 0.0;
+    //if(abs(new_norm[1]) <= SMALLANGLE) new_norm[1] = 0.0;
+    //if(abs(new_norm[2]) <= SMALLANGLE) new_norm[2] = 0.0;
+
+    // if product sign negative, need to flip
+    //if(norm[0]*new_norm[0] < 0) error->one(FLERR,"Normal doesn't match");
+    //if(norm[1]*new_norm[1] < 0) error->one(FLERR,"Normal doesn't match");
+    //if(norm[2]*new_norm[2] < 0) error->one(FLERR,"Normal doesn't match");
+    //printf("out norm: %4.3e, %4.3e, %4.3e\n",
+    //  cos(theta)*sin(phi),sin(theta)*sin(phi),cos(phi));
 
     // store
     Sn[i][0] = theta;
@@ -845,8 +903,13 @@ void FixSolid::read_surf(FILE *fin)
     //printf("theta: %4.3e; phi: %4.3e; A: %4.3e\n", theta,phi,area);
   }
 
-  //for (int i = 0; i < nsurfs; i++)
-  //  printf("theta: %4.3e; phi: %4.3e; A: %4.3e\n", Sn[i][0],Sn[i][1],Sn[i][2]);
+  /*double totalA = 0.0;
+  for (int i = 0; i < nsurfs; i++) {
+    printf("theta: %4.3e; phi: %4.3e; A: %4.3e\n", Sn[i][0],Sn[i][1],Sn[i][2]);
+    totalA += Sn[i][2];
+  }
+  printf("totalA: %4.3e\n", totalA);*/
+  //error->one(FLERR,"ck");
 
   // destroy
 
