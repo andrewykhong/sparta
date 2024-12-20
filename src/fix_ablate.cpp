@@ -31,6 +31,8 @@
 #include "dump.h"
 #include "marching_squares.h"
 #include "marching_cubes.h"
+#include "marching_circles.h"
+#include "marching_spheres.h"
 #include "random_mars.h"
 #include "random_knuth.h"
 #include "memory.h"
@@ -236,6 +238,8 @@ FixAblate::FixAblate(SPARTA *sparta, int narg, char **arg) :
 
   ms = NULL;
   mc = NULL;
+  mci = NULL;
+  msp = NULL;
 
   // RNG for random decrements
   // for now, use same RNG on every proc
@@ -291,6 +295,8 @@ FixAblate::~FixAblate()
 
   delete ms;
   delete mc;
+  delete mci;
+  delete msp;
 
   delete random;
 }
@@ -314,7 +320,8 @@ void FixAblate::store_corners(int nx_caller, int ny_caller, int nz_caller,
                               double *cornerlo_caller, double *xyzsize_caller,
                               double **cvalues_caller, double ***mvalues_caller,
                               int *tvalues_caller,
-                              double thresh_caller, char *sgroupID, int pushflag)
+                              double thresh_caller, char *sgroupID,
+                              int pushflag, int sphereflag_caller)
 {
   storeflag = 1;
   if(mvalues_caller) {
@@ -324,6 +331,9 @@ void FixAblate::store_corners(int nx_caller, int ny_caller, int nz_caller,
     multi_val_flag = 0;
     mvalues = NULL; // likely not needed
   }
+
+  if (sphereflag_caller) sphereflag = 1;
+  else sphereflag = 0;
 
   nx = nx_caller;
   ny = ny_caller;
@@ -414,12 +424,23 @@ void FixAblate::store_corners(int nx_caller, int ny_caller, int nz_caller,
 
   // create marching squares/cubes classes, now that have group & threshold
 
-  if (dim == 2) ms = new MarchingSquares(sparta,igroup,thresh);
-  else mc = new MarchingCubes(sparta,igroup,thresh);
-
-  // set minimum distance between vertex and grid point (mindist) in marching
-  if (dim == 2) ms->mindist = mindist;
-  else mc->mindist = mindist;
+  if (sphereflag) {
+    if (dim == 2) {
+      mci = new MarchingCircles(sparta,igroup);
+      mci->mindist = mindist;
+    } else {
+      msp = new MarchingSpheres(sparta,igroup);
+      msp->mindist = mindist;
+    }
+  } else {
+    if (dim == 2) {
+      ms = new MarchingSquares(sparta,igroup,thresh);
+      ms->mindist = mindist;
+    } else {
+      mc = new MarchingCubes(sparta,igroup,thresh);
+      mc->mindist = mindist;
+    }
+  }
 
   // create implicit surfaces
 
@@ -536,8 +557,13 @@ void FixAblate::create_surfs(int outflag)
   // cvalues = corner point values
   // tvalues = surf type for surfs in each grid cell
 
-  if (dim == 2) ms->invoke(cvalues,mvalues,tvalues);
-  else mc->invoke(cvalues,mvalues,tvalues,mcflags);
+  if (sphereflag) {
+    if (dim == 2) mci->invoke(cvalues,mvalues,tvalues);
+    else msp->invoke(cvalues,mvalues,tvalues,mcflags);
+  } else {
+    if (dim == 2) ms->invoke(cvalues,mvalues,tvalues);
+    else mc->invoke(cvalues,mvalues,tvalues,mcflags);
+  }
 
   // set surf->nsurf and surf->nown
 
@@ -566,7 +592,8 @@ void FixAblate::create_surfs(int outflag)
   if (dim == 3) {
     grid->acquire_ghosts(0);
     grid->reset_neighbors();
-    mc->cleanup();
+    if (sphereflag) msp->cleanup();
+    else mc->cleanup();
     surf->remove_ghosts();
     grid->unset_neighbors();
     grid->remove_ghosts();

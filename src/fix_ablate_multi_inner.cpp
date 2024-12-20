@@ -458,6 +458,10 @@ void FixAblate::epsilon_adjust_multiv()
   Grid::ChildCell *cells = grid->cells;
   Grid::ChildInfo *cinfo = grid->cinfo;
 
+  double multi_th;
+  if (sphereflag) multi_th = 0.0;
+  else multi_th = thresh;
+
   for (int icell = 0; icell < nglocal; icell++) {
     if (!(cinfo[icell].mask & groupbit)) continue;
     if (cells[icell].nsplit <= 0) continue;
@@ -465,13 +469,13 @@ void FixAblate::epsilon_adjust_multiv()
     for (int i = 0; i < ncorner; i++) {
 
       // check all in or out
-      if (mvalues[icell][i][0] > thresh) allin = 1;
+      if (mvalues[icell][i][0] > multi_th) allin = 1;
       else allin = 0;
 
       mixflag = 0;
       for (int j = 0; j < nmultiv; j++) {
-        if (mvalues[icell][i][j] <= thresh && allin) mixflag = 1;
-        if (mvalues[icell][i][j] > thresh && !allin) mixflag = 1;
+        if (mvalues[icell][i][j] <= multi_th && allin) mixflag = 1;
+        if (mvalues[icell][i][j] > multi_th && !allin) mixflag = 1;
       }
 
       // if mixflag = 1, inner indices in disagreement in terms of side
@@ -480,13 +484,13 @@ void FixAblate::epsilon_adjust_multiv()
       if (mixflag) {
 
         for (int j = 0; j < nmultiv; j++)
-          mvalues[icell][i][j] = thresh;
+          mvalues[icell][i][j] = multi_th;
 
       // all out
       } else if (!allin) {
         for (int j = 0; j < nmultiv; j++)
-          if (mvalues[icell][i][j] > thresh)
-            mvalues[icell][i][j] = thresh;
+          if (mvalues[icell][i][j] > multi_th)
+            mvalues[icell][i][j] = multi_th;
       }
 
     } // end corner

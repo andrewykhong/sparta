@@ -49,7 +49,7 @@ class FixAblate : public Fix {
   double memory_usage();
 
   void store_corners(int, int, int, double *, double *,
-                     double **, double ***, int *, double, char *, int);
+                     double **, double ***, int *, double, char *, int, int);
   double mindist;             // min fractional distance between any grid corner pt
                               //   and a generated tri vertex or line segment endpt
  protected:
@@ -61,6 +61,7 @@ class FixAblate : public Fix {
   int multi_val_flag;
   int multi_dec_flag;
   int minmaxflag;
+  int sphereflag;
   int ncorner;
   int nmultiv;
   int sgroupbit;
@@ -111,6 +112,8 @@ class FixAblate : public Fix {
 
   class MarchingSquares *ms;
   class MarchingCubes *mc;
+  class MarchingCircles *mci;
+  class MarchingSpheres *msp;
   class RanKnuth *random;
 
   void process_args(int, char **);
