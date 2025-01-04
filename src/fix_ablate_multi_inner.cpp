@@ -189,8 +189,6 @@ int FixAblate::sync_sphere(int const SCALE)
         } // end jy
       } // end jz
 
-      // DO NOT ZERO - Handled in decremet_remain()
-
       if (multi_val_flag) {
         // check for consistency
         int neg = 0;
@@ -205,28 +203,32 @@ int FixAblate::sync_sphere(int const SCALE)
           else if (mvalues[icell][i][j] > 0) pos = 1;
         }
 
-        if (neg) any_neg = 1;
-
-        // mixed signs (grid point cannot be both inside and outside)
-        if (pos && neg) {
-
-          // any positive values go to zero
-          double tmp_mval[nmultiv];
+        if (SCALE == 2) {
           for (j = 0; j < nmultiv; j++)
-            if (mvalues[icell][i][j] > 0.0) mvalues[icell][i][j] = 0.0;
+            if (mvalues[icell][i][j] < 0) mvalues[icell][i][j] = 0.0;
+        } else {
+          if (neg) any_neg = 1;
 
-          memcpy(tmp_mval,mvalues[icell][i],nmultiv*sizeof(double));
+          // mixed signs (grid point cannot be both inside and outside)
+          if (pos && neg) {
 
-          // swap values between inner neighbor pairs
-          for (j = 0; j < nmultiv; j++) {
-             if (j == 0) mvalues[icell][i][1] = tmp_mval[j];
-             else if (j == 1) mvalues[icell][i][0] = tmp_mval[j];
-             else if (j == 2) mvalues[icell][i][3] = tmp_mval[j];
-             else if (j == 3) mvalues[icell][i][2] = tmp_mval[j];
-             else if (j == 4) mvalues[icell][i][5] = tmp_mval[j];
-             else if (j == 5) mvalues[icell][i][4] = tmp_mval[j];
-          }
+            // any positive values go to zero
+            double tmp_mval[nmultiv];
+            for (j = 0; j < nmultiv; j++)
+              if (mvalues[icell][i][j] >= 0.0) mvalues[icell][i][j] = 0.0;
 
+            memcpy(tmp_mval,mvalues[icell][i],nmultiv*sizeof(double));
+
+            // swap values between inner neighbor pairs
+            for (j = 0; j < nmultiv; j++) {
+               if (j == 0) mvalues[icell][i][1] = tmp_mval[j];
+               else if (j == 1) mvalues[icell][i][0] = tmp_mval[j];
+               else if (j == 2) mvalues[icell][i][3] = tmp_mval[j];
+               else if (j == 3) mvalues[icell][i][2] = tmp_mval[j];
+               else if (j == 4) mvalues[icell][i][5] = tmp_mval[j];
+               else if (j == 5) mvalues[icell][i][4] = tmp_mval[j];
+            }
+          } // pos/neg
         }
  
       } else {
@@ -236,8 +238,10 @@ int FixAblate::sync_sphere(int const SCALE)
         }
 
         cvalues[icell][i] -= total[0];
-        if (cvalues[icell][i] < 0) any_neg = 1;
-
+        if (cvalues[icell][i] < 0) {
+          any_neg = 1;
+          if (SCALE == 2) cvalues[icell][i] = 0.0;
+        }
       }
 
     } // end corners
@@ -349,13 +353,6 @@ void FixAblate::pass_negative()
 
           // decrement neighboring inside points by negative
           i_cneigh = neighbors[j];
-          //i_in = ineighbors[j];
-          //if (i_in == 0) i_oin = 1;
-          //else if (i_in == 1) i_oin = 0;
-          //else if (i_in == 2) i_oin = 3;
-          //else if (i_in == 3) i_oin = 2;
-          //else if (i_in == 4) i_oin = 5;
-          //else if (i_in == 5) i_oin = 4;
 
           // for consistency, update all
           if(refcorners[i_cneigh] == 1) {

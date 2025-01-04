@@ -486,21 +486,28 @@ void FixAblate::end_of_step()
     if (sphereflag) {
       // reduce inside corner points
       decrement_sphere();
-      sync_sphere(0);
+      //sync_sphere(0);
 
       // pass negative values to next corner point
-      int neg = 1;
+      // disable negative pass for now
+      /*int neg = 1;
       int some_neg;
       int iter = 0;
       MPI_Allreduce(&neg,&some_neg,1,MPI_INT,MPI_SUM,world);
       while(some_neg) {
-        if (!multi_val_flag) count_vertices();
-        pass_negative();
-        neg = sync_sphere(1);
+        if (iter <= 20) {
+          if (!multi_val_flag) count_vertices();
+          pass_negative();
+          neg = sync_sphere(1);
+        } else {
+          printf("Many iterations. Go next\n");
+          sync_sphere(2);
+          neg = 0;
+        }
         MPI_Allreduce(&neg,&some_neg,1,MPI_INT,MPI_SUM,world);
         iter++;
-        if (iter > 10) error->one(FLERR,"Too many");
-      }
+      }*/
+      sync_sphere(2);
 
     } else {
       if (multi_val_flag) {
