@@ -138,6 +138,12 @@ class FixAblate : public Fix {
   void sync_multiv_multid_outside();
   void sync_multiv_multid_inside();
 
+  // for Marching spheres
+  void decrement_sphere();
+  int sync_sphere(int const);
+  void count_vertices();
+  void pass_negative();
+
   void mark_corners_2d(int);
   void mark_corners_3d(int);
   int find_ninter();

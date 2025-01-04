@@ -344,7 +344,9 @@ void FixAblate::store_corners(int nx_caller, int ny_caller, int nz_caller,
   xyzsize[0] = xyzsize_caller[0];
   xyzsize[1] = xyzsize_caller[1];
   xyzsize[2] = xyzsize_caller[2];
-  thresh = thresh_caller;
+
+  if (sphereflag) thresh = EPSILON;
+  else thresh = thresh_caller;
 
   tvalues_flag = 0;
   if (tvalues_caller) tvalues_flag = 1;
@@ -424,22 +426,14 @@ void FixAblate::store_corners(int nx_caller, int ny_caller, int nz_caller,
 
   // create marching squares/cubes classes, now that have group & threshold
 
-  if (sphereflag) {
-    if (dim == 2) {
-      mci = new MarchingCircles(sparta,igroup);
-      mci->mindist = mindist;
-    } else {
-      msp = new MarchingSpheres(sparta,igroup);
-      msp->mindist = mindist;
-    }
+  if (dim == 2) {
+    ms = new MarchingSquares(sparta,igroup,thresh);
+    ms->mindist = mindist;
+    if (sphereflag) ms->sphereflag = 1;
   } else {
-    if (dim == 2) {
-      ms = new MarchingSquares(sparta,igroup,thresh);
-      ms->mindist = mindist;
-    } else {
-      mc = new MarchingCubes(sparta,igroup,thresh);
-      mc->mindist = mindist;
-    }
+    mc = new MarchingCubes(sparta,igroup,thresh);
+    mc->mindist = mindist;
+    if (sphereflag) mc->sphereflag = 1;
   }
 
   // create implicit surfaces
@@ -489,16 +483,37 @@ void FixAblate::end_of_step()
   // 2) is the decrement distributed to multiple corner points?
 
   if (multi_dec_flag) {
-    if (multi_val_flag) {
-      decrement_multiv_multid_outside();
-      sync_multiv_multid_outside();
-      decrement_multiv_multid_inside();
-      sync_multiv_multid_inside();
+    if (sphereflag) {
+      // reduce inside corner points
+      decrement_sphere();
+      sync_sphere(0);
+
+      // pass negative values to next corner point
+      int neg = 1;
+      int some_neg;
+      int iter = 0;
+      MPI_Allreduce(&neg,&some_neg,1,MPI_INT,MPI_SUM,world);
+      while(some_neg) {
+        if (!multi_val_flag) count_vertices();
+        pass_negative();
+        neg = sync_sphere(1);
+        MPI_Allreduce(&neg,&some_neg,1,MPI_INT,MPI_SUM,world);
+        iter++;
+        if (iter > 10) error->one(FLERR,"Too many");
+      }
+
     } else {
-      decrement_multid_outside();
-      sync_multid_outside();
-      decrement_multid_inside();
-      sync_multid_inside();
+      if (multi_val_flag) {
+        decrement_multiv_multid_outside();
+        sync_multiv_multid_outside();
+        decrement_multiv_multid_inside();
+        sync_multiv_multid_inside();
+      } else {
+        decrement_multid_outside();
+        sync_multid_outside();
+        decrement_multid_inside();
+        sync_multid_inside();
+      }
     }
   } else {
     if (multi_val_flag) {
@@ -556,14 +571,8 @@ void FixAblate::create_surfs(int outflag)
   // perform Marching Squares/Cubes to create new implicit surfs
   // cvalues = corner point values
   // tvalues = surf type for surfs in each grid cell
-
-  if (sphereflag) {
-    if (dim == 2) mci->invoke(cvalues,mvalues,tvalues);
-    else msp->invoke(cvalues,mvalues,tvalues,mcflags);
-  } else {
-    if (dim == 2) ms->invoke(cvalues,mvalues,tvalues);
-    else mc->invoke(cvalues,mvalues,tvalues,mcflags);
-  }
+  if (dim == 2) ms->invoke(cvalues,mvalues,tvalues);
+  else mc->invoke(cvalues,mvalues,tvalues,mcflags);
 
   // set surf->nsurf and surf->nown
 
@@ -592,8 +601,9 @@ void FixAblate::create_surfs(int outflag)
   if (dim == 3) {
     grid->acquire_ghosts(0);
     grid->reset_neighbors();
-    if (sphereflag) msp->cleanup();
-    else mc->cleanup();
+    //if(sphereflag) msp->cleanup();
+    //else mc->cleanup();
+    mc->cleanup();
     surf->remove_ghosts();
     grid->unset_neighbors();
     grid->remove_ghosts();
@@ -1121,8 +1131,6 @@ void FixAblate::sync()
 
 void FixAblate::epsilon_adjust()
 {
-  if (mindist == 0.0) return;
-
   int i,icell;
 
   Grid::ChildCell *cells = grid->cells;
@@ -1132,11 +1140,10 @@ void FixAblate::epsilon_adjust()
     if (!(cinfo[icell].mask & groupbit)) continue;
     if (cells[icell].nsplit <= 0) continue;
 
-    for (i = 0; i < ncorner; i++)
-      if (cvalues[icell][i] >= thresh && cvalues[icell][i] < thresh + EPSILON)
-        cvalues[icell][i] = thresh - EPSILON;
-      else if (cvalues[icell][i] < thresh && cvalues[icell][i] > thresh - EPSILON)
-        cvalues[icell][i] = thresh - EPSILON;
+    for (i = 0; i < ncorner; i++) {
+      if (cvalues[icell][i] > thresh-EPSILON && cvalues[icell][i] < thresh+EPSILON)
+        cvalues[icell][i] = MAX(thresh-EPSILON,0.0);
+    }
   }
 }
 

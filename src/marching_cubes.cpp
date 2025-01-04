@@ -39,7 +39,7 @@ enum{NCHILD,NPARENT,NUNKNOWN,NPBCHILD,NPBPARENT,NPBUNKNOWN,NBOUND};  // Grid
 
 #define DELTA 128
 #define BIG 1.0e20
-#define EPSILON 1.0e-16
+#define EPSILON 1.0e-4
 
 /* ---------------------------------------------------------------------- */
 
@@ -51,6 +51,7 @@ MarchingCubes::MarchingCubes(SPARTA *sparta, int ggroup_caller,
 
   ggroup = ggroup_caller;
   thresh = thresh_caller;
+  sphereflag = 0;
 }
 
 /* ----------------------------------------------------------------------
@@ -75,6 +76,8 @@ void MarchingCubes::invoke(double **cvalues, double ***mvalues, int *svalues, in
   int i,j,ipt,isurf,nsurf,icase,which;
   surfint surfID;
   surfint *ptr;
+
+  //int icheck = 163;
 
   Grid::ChildCell *cells = grid->cells;
   Grid::ChildInfo *cinfo = grid->cinfo;
@@ -115,20 +118,38 @@ void MarchingCubes::invoke(double **cvalues, double ***mvalues, int *svalues, in
       v110 = cvalues[icell][6];
       v111 = cvalues[icell][7];
 
-      i0  = interpolate(v000,v001,lo[0],hi[0]);
-      i1  = interpolate(v001,v011,lo[1],hi[1]);
-      i2  = interpolate(v010,v011,lo[0],hi[0]);
-      i3  = interpolate(v000,v010,lo[1],hi[1]);
+      if (sphereflag) {
+        i0  = extrapolate(v000,v001,lo[0],hi[0]);
+        i1  = extrapolate(v001,v011,lo[1],hi[1]);
+        i2  = extrapolate(v010,v011,lo[0],hi[0]);
+        i3  = extrapolate(v000,v010,lo[1],hi[1]);
 
-      i4  = interpolate(v100,v101,lo[0],hi[0]);
-      i5  = interpolate(v101,v111,lo[1],hi[1]);
-      i6  = interpolate(v110,v111,lo[0],hi[0]);
-      i7  = interpolate(v100,v110,lo[1],hi[1]);
+        i4  = extrapolate(v100,v101,lo[0],hi[0]);
+        i5  = extrapolate(v101,v111,lo[1],hi[1]);
+        i6  = extrapolate(v110,v111,lo[0],hi[0]);
+        i7  = extrapolate(v100,v110,lo[1],hi[1]);
 
-      i8  = interpolate(v000,v100,lo[2],hi[2]);
-      i9  = interpolate(v001,v101,lo[2],hi[2]);
-      i10 = interpolate(v011,v111,lo[2],hi[2]);
-      i11 = interpolate(v010,v110,lo[2],hi[2]);
+        i8  = extrapolate(v000,v100,lo[2],hi[2]);
+        i9  = extrapolate(v001,v101,lo[2],hi[2]);
+        i10 = extrapolate(v011,v111,lo[2],hi[2]);
+        i11 = extrapolate(v010,v110,lo[2],hi[2]);
+      } else {
+        i0  = interpolate(v000,v001,lo[0],hi[0]);
+        i1  = interpolate(v001,v011,lo[1],hi[1]);
+        i2  = interpolate(v010,v011,lo[0],hi[0]);
+        i3  = interpolate(v000,v010,lo[1],hi[1]);
+
+        i4  = interpolate(v100,v101,lo[0],hi[0]);
+        i5  = interpolate(v101,v111,lo[1],hi[1]);
+        i6  = interpolate(v110,v111,lo[0],hi[0]);
+        i7  = interpolate(v100,v110,lo[1],hi[1]);
+
+        i8  = interpolate(v000,v100,lo[2],hi[2]);
+        i9  = interpolate(v001,v101,lo[2],hi[2]);
+        i10 = interpolate(v011,v111,lo[2],hi[2]);
+        i11 = interpolate(v010,v110,lo[2],hi[2]);
+      }
+
     } else {
 
       for (i = 0; i < 8; i++)
@@ -163,42 +184,87 @@ void MarchingCubes::invoke(double **cvalues, double ***mvalues, int *svalues, in
       v110 /= 6.0;
       v111 /= 6.0;
 
-      i0  = interpolate(inval[0][1],inval[1][0],lo[0],hi[0]);
-      i1  = interpolate(inval[1][3],inval[3][2],lo[1],hi[1]);
-      i2  = interpolate(inval[2][1],inval[3][0],lo[0],hi[0]);
-      i3  = interpolate(inval[0][3],inval[2][2],lo[1],hi[1]);
+      if (sphereflag) {
+        i0  = extrapolate(inval[0][1],inval[1][0],lo[0],hi[0]);
+        i1  = extrapolate(inval[1][3],inval[3][2],lo[1],hi[1]);
+        i2  = extrapolate(inval[2][1],inval[3][0],lo[0],hi[0]);
+        i3  = extrapolate(inval[0][3],inval[2][2],lo[1],hi[1]);
 
-      i4  = interpolate(inval[4][1],inval[5][0],lo[0],hi[0]);
-      i5  = interpolate(inval[5][3],inval[7][2],lo[1],hi[1]);
-      i6  = interpolate(inval[6][1],inval[7][0],lo[0],hi[0]);
-      i7  = interpolate(inval[4][3],inval[6][2],lo[1],hi[1]);
+        i4  = extrapolate(inval[4][1],inval[5][0],lo[0],hi[0]);
+        i5  = extrapolate(inval[5][3],inval[7][2],lo[1],hi[1]);
+        i6  = extrapolate(inval[6][1],inval[7][0],lo[0],hi[0]);
+        i7  = extrapolate(inval[4][3],inval[6][2],lo[1],hi[1]);
 
-      i8  = interpolate(inval[0][5],inval[4][4],lo[2],hi[2]);
-      i9  = interpolate(inval[1][5],inval[5][4],lo[2],hi[2]);
-      i10 = interpolate(inval[3][5],inval[7][4],lo[2],hi[2]);
-      i11 = interpolate(inval[2][5],inval[6][4],lo[2],hi[2]);
+        i8  = extrapolate(inval[0][5],inval[4][4],lo[2],hi[2]);
+        i9  = extrapolate(inval[1][5],inval[5][4],lo[2],hi[2]);
+        i10 = extrapolate(inval[3][5],inval[7][4],lo[2],hi[2]);
+        i11 = extrapolate(inval[2][5],inval[6][4],lo[2],hi[2]);
+      } else {
+        i0  = interpolate(inval[0][1],inval[1][0],lo[0],hi[0]);
+        i1  = interpolate(inval[1][3],inval[3][2],lo[1],hi[1]);
+        i2  = interpolate(inval[2][1],inval[3][0],lo[0],hi[0]);
+        i3  = interpolate(inval[0][3],inval[2][2],lo[1],hi[1]);
 
+        i4  = interpolate(inval[4][1],inval[5][0],lo[0],hi[0]);
+        i5  = interpolate(inval[5][3],inval[7][2],lo[1],hi[1]);
+        i6  = interpolate(inval[6][1],inval[7][0],lo[0],hi[0]);
+        i7  = interpolate(inval[4][3],inval[6][2],lo[1],hi[1]);
+
+        i8  = interpolate(inval[0][5],inval[4][4],lo[2],hi[2]);
+        i9  = interpolate(inval[1][5],inval[5][4],lo[2],hi[2]);
+        i10 = interpolate(inval[3][5],inval[7][4],lo[2],hi[2]);
+        i11 = interpolate(inval[2][5],inval[6][4],lo[2],hi[2]);
+      }
     }
-
-    v000iso = v000 - thresh;
-    v001iso = v001 - thresh;
-    v010iso = v010 - thresh;
-    v011iso = v011 - thresh;
-    v100iso = v100 - thresh;
-    v101iso = v101 - thresh;
-    v110iso = v110 - thresh;
-    v111iso = v111 - thresh;
 
     // make bits 2, 3, 6 and 7 consistent with Lewiner paper (see NOTE above)
 
-    bit0 = v000 <= thresh ? 0 : 1;
-    bit1 = v001 <= thresh ? 0 : 1;
-    bit2 = v011 <= thresh ? 0 : 1;
-    bit3 = v010 <= thresh ? 0 : 1;
-    bit4 = v100 <= thresh ? 0 : 1;
-    bit5 = v101 <= thresh ? 0 : 1;
-    bit6 = v111 <= thresh ? 0 : 1;
-    bit7 = v110 <= thresh ? 0 : 1;
+    if (sphereflag) {
+      //v000iso = v000/255.0;
+      //v001iso = v001/255.0;
+      //v010iso = v010/255.0;
+      //v011iso = v011/255.0;
+      //v100iso = v100/255.0;
+      //v101iso = v101/255.0;
+      //v110iso = v110/255.0;
+      //v111iso = v111/255.0;
+
+      v000iso = v000 - thresh;
+      v001iso = v001 - thresh;
+      v010iso = v010 - thresh;
+      v011iso = v011 - thresh;
+      v100iso = v100 - thresh;
+      v101iso = v101 - thresh;
+      v110iso = v110 - thresh;
+      v111iso = v111 - thresh;
+
+      bit0 = v000 <= thresh ? 0 : 1;
+      bit1 = v001 <= thresh ? 0 : 1;
+      bit2 = v011 <= thresh ? 0 : 1;
+      bit3 = v010 <= thresh ? 0 : 1;
+      bit4 = v100 <= thresh ? 0 : 1;
+      bit5 = v101 <= thresh ? 0 : 1;
+      bit6 = v111 <= thresh ? 0 : 1;
+      bit7 = v110 <= thresh ? 0 : 1;
+    } else {
+      v000iso = v000 - thresh;
+      v001iso = v001 - thresh;
+      v010iso = v010 - thresh;
+      v011iso = v011 - thresh;
+      v100iso = v100 - thresh;
+      v101iso = v101 - thresh;
+      v110iso = v110 - thresh;
+      v111iso = v111 - thresh;
+
+      bit0 = v000 <= thresh ? 0 : 1;
+      bit1 = v001 <= thresh ? 0 : 1;
+      bit2 = v011 <= thresh ? 0 : 1;
+      bit3 = v010 <= thresh ? 0 : 1;
+      bit4 = v100 <= thresh ? 0 : 1;
+      bit5 = v101 <= thresh ? 0 : 1;
+      bit6 = v111 <= thresh ? 0 : 1;
+      bit7 = v110 <= thresh ? 0 : 1;
+    }
 
     which = (bit7 << 7) + (bit6 << 6) + (bit5 << 5) + (bit4 << 4) +
       (bit3 << 3) + (bit2 << 2) + (bit1 << 1) + bit0;
@@ -524,6 +590,35 @@ double MarchingCubes::interpolate(double v0, double v1, double lo, double hi)
   double ibuffer = (hi-lo)*mindist;
   value = MAX(value,lo+ibuffer);
   value = MIN(value,hi-ibuffer);
+  return value;
+}
+
+/* ----------------------------------------------------------------------
+   extrapolate
+------------------------------------------------------------------------- */
+
+double MarchingCubes::extrapolate(double v0, double v1, double lo, double hi)
+{
+  double cmax = 255.0;
+  if (v0 < 0 || v1 < 0) error->one(FLERR,"negative value");
+  if (v0 > cmax || v1 > cmax) error->one(FLERR,"exceed bound");
+
+  // both inside or both outside
+  if (v0 > 0 && v1 > 0) return 0;
+  else if (v0 == 0 && v1 == 0) return 0; 
+
+  // extrapolate from inside
+  double value;
+  if (v0 > v1) value = lo + (hi-lo)*(v0/cmax);
+  else value = lo + (hi-lo)*(1.0-v1/cmax);
+
+  if (value > hi || value < lo) error->one(FLERR,"Vertex off edge");
+
+  // buffer to avoid degenerate triangles
+  double ibuffer = (hi-lo)*mindist;
+  value = MAX(value,lo+ibuffer);
+  value = MIN(value,hi-ibuffer);
+
   return value;
 }
 
@@ -1213,8 +1308,13 @@ bool MarchingCubes::test_face(int face)
     error->one(FLERR,"Invalid face code");
   };
 
-  if (fabs(A*C - B*D) < EPSILON) return face >= 0;
-  return face * A * (A*C - B*D) >= 0 ;  // face and A invert signs
+  if (false) {
+    if (A+C >= sqrt(2) || B+D >= sqrt(2)) return 1;
+    else return 0;
+  } else {
+    if (fabs(A*C - B*D) < EPSILON) return face >= 0;
+    return face * A * (A*C - B*D) >= 0 ;  // face and A invert signs
+  }
 }
 
 /* ----------------------------------------------------------------------
@@ -1226,6 +1326,8 @@ bool MarchingCubes::test_face(int face)
 
 bool MarchingCubes::test_interior(int s, int icase)
 {
+  if (false) return MS_test_interior();
+
   double t,a,b,At=0.0,Bt=0.0,Ct=0.0,Dt=0.0;
   int test = 0;
   int edge = -1;   // reference edge of the triangulation
@@ -1387,6 +1489,8 @@ bool MarchingCubes::test_interior(int s, int icase)
 
 bool MarchingCubes::modified_test_interior(int s, int icase)
 {
+  if (false) return MS_test_interior();
+
   int edge = -1;
   int amb_face;
 
@@ -1474,6 +1578,8 @@ bool MarchingCubes::modified_test_interior(int s, int icase)
 
 int MarchingCubes::interior_ambiguity(int amb_face, int s)
 {
+  if (false) return MS_test_interior();
+
   int edge;
 
   switch (amb_face) {
@@ -1510,6 +1616,8 @@ int MarchingCubes::interior_ambiguity(int amb_face, int s)
 
 int MarchingCubes::interior_ambiguity_verification(int edge)
 {
+  if (false) return MS_test_interior();
+
   double t, At = 0.0, Bt = 0.0, Ct = 0.0, Dt = 0.0, a = 0.0, b = 0.0;
   double verify;
 
@@ -1845,6 +1953,8 @@ int MarchingCubes::interior_ambiguity_verification(int edge)
 
 bool MarchingCubes::interior_test_case13()
 {
+  if (false) return MS_test_interior();
+
   double t1, t2, At1 = 0.0, Bt1 = 0.0, Ct1 = 0.0, Dt1 = 0.0;
   double At2 = 0.0, Bt2 = 0.0, Ct2 = 0.0, Dt2 = 0.0, a = 0.0, b = 0.0, c = 0.0;
 
@@ -1885,6 +1995,20 @@ bool MarchingCubes::interior_test_case13()
   }
 
   return true;
+}
+
+/* ----------------------------------------------------------------------
+   marching spheres interior test
+------------------------------------------------------------------------- */
+
+int MarchingCubes::MS_test_interior()
+{
+  // check all large diagonals
+  if (v000iso+v111iso > sqrt(3)) return 1;
+  if (v001iso+v110iso > sqrt(3)) return 1;
+  if (v101iso+v010iso > sqrt(3)) return 1;
+  if (v100iso+v011iso > sqrt(3)) return 1;
+  return 0;
 }
 
 /* ----------------------------------------------------------------------

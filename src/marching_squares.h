@@ -25,12 +25,14 @@ class MarchingSquares : protected Pointers {
   ~MarchingSquares() {}
   void invoke(double **, double ***, int *);
   double mindist;
+  int sphereflag;
 
  private:
   int ggroup;
   double thresh;
 
   double interpolate(double, double, double, double);
+  double extrapolate(double, double, double, double);
 };
 
 }

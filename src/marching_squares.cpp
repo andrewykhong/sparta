@@ -29,6 +29,8 @@ MarchingSquares::MarchingSquares(SPARTA *sparta, int ggroup_caller,
 {
   ggroup = ggroup_caller;
   thresh = thresh_caller;
+
+  sphereflag = 0;
 }
 
 /* ----------------------------------------------------------------------
@@ -58,6 +60,8 @@ void MarchingSquares::invoke(double **cvalues, double ***mvalues, int *svalues)
   double *lo,*hi;
   surfint surfID;
   surfint *ptr;
+  int in_flag;
+  double sqrt2 = 1.41421356237;
 
   double pt[4][3];
   pt[0][2] = pt[1][2] = pt[2][2] = pt[3][2] = 0.0;
@@ -87,11 +91,17 @@ void MarchingSquares::invoke(double **cvalues, double ***mvalues, int *svalues)
       v10 = cvalues[icell][2];
       v11 = cvalues[icell][3];
 
-      i0  = interpolate(v00,v01,lo[0],hi[0]);
-      i1  = interpolate(v01,v11,lo[1],hi[1]);
-      i2  = interpolate(v10,v11,lo[0],hi[0]);
-      i3  = interpolate(v00,v10,lo[1],hi[1]);
-
+      if (sphereflag) {
+        i0  = extrapolate(v00,v01,lo[0],hi[0]);
+        i1  = extrapolate(v01,v11,lo[1],hi[1]);
+        i2  = extrapolate(v10,v11,lo[0],hi[0]);
+        i3  = extrapolate(v00,v10,lo[1],hi[1]);
+      } else {
+        i0  = interpolate(v00,v01,lo[0],hi[0]);
+        i1  = interpolate(v01,v11,lo[1],hi[1]);
+        i2  = interpolate(v10,v11,lo[0],hi[0]);
+        i3  = interpolate(v00,v10,lo[1],hi[1]);
+      }
     } else {
       v00 = v01 = v10 = v11 = 0.0;
 
@@ -107,18 +117,32 @@ void MarchingSquares::invoke(double **cvalues, double ***mvalues, int *svalues)
       v10 /= 4.0;
       v11 /= 4.0;
 
-      i0  = interpolate(mvalues[icell][0][1],mvalues[icell][1][0],lo[0],hi[0]);
-      i1  = interpolate(mvalues[icell][1][3],mvalues[icell][3][2],lo[1],hi[1]);
-      i2  = interpolate(mvalues[icell][2][1],mvalues[icell][3][0],lo[0],hi[0]);
-      i3  = interpolate(mvalues[icell][0][3],mvalues[icell][2][2],lo[1],hi[1]);
+      if (sphereflag) {
+        i0  = extrapolate(mvalues[icell][0][1],mvalues[icell][1][0],lo[0],hi[0]);
+        i1  = extrapolate(mvalues[icell][1][3],mvalues[icell][3][2],lo[1],hi[1]);
+        i2  = extrapolate(mvalues[icell][2][1],mvalues[icell][3][0],lo[0],hi[0]);
+        i3  = extrapolate(mvalues[icell][0][3],mvalues[icell][2][2],lo[1],hi[1]);
+      } else {
+        i0  = interpolate(mvalues[icell][0][1],mvalues[icell][1][0],lo[0],hi[0]);
+        i1  = interpolate(mvalues[icell][1][3],mvalues[icell][3][2],lo[1],hi[1]);
+        i2  = interpolate(mvalues[icell][2][1],mvalues[icell][3][0],lo[0],hi[0]);
+        i3  = interpolate(mvalues[icell][0][3],mvalues[icell][2][2],lo[1],hi[1]);
+      }
     }
 
     // make last 2 bits consistent with Wiki page (see NOTE above)
 
-    bit0 = v00 <= thresh ? 0 : 1;
-    bit1 = v01 <= thresh ? 0 : 1;
-    bit2 = v11 <= thresh ? 0 : 1;
-    bit3 = v10 <= thresh ? 0 : 1;
+    if (sphereflag) {
+      bit0 = v00 <= 0.0 ? 0 : 1;
+      bit1 = v01 <= 0.0 ? 0 : 1;
+      bit2 = v11 <= 0.0 ? 0 : 1;
+      bit3 = v10 <= 0.0 ? 0 : 1;
+    } else {
+      bit0 = v00 <= thresh ? 0 : 1;
+      bit1 = v01 <= thresh ? 0 : 1;
+      bit2 = v11 <= thresh ? 0 : 1;
+      bit3 = v10 <= thresh ? 0 : 1;
+    }
 
     which = (bit3 << 3) + (bit2 << 2) + (bit1 << 1) + bit0;
 
@@ -162,8 +186,18 @@ void MarchingSquares::invoke(double **cvalues, double ***mvalues, int *svalues)
 
     case 5:
       nsurf = 2;
-      ave = 0.25 * (v00 + v01 + v10 + v11);
-      if (ave > thresh) {
+
+      //if (sphereflag) {
+      //  if (v00+v11 >= sqrt2) in_flag = 1;
+      //  else if (v01+v10 >= sqrt2) in_flag = 1;
+      //  else in_flag = 0;
+      //} else {
+        ave = 0.25 * (v00 + v01 + v10 + v11);
+        if (ave > thresh) in_flag = 1;
+        else in_flag = 0;
+      //}
+
+      if (in_flag) {
         pt[0][0] = lo[0];
         pt[0][1] = i3;
         pt[1][0] = i2;
@@ -218,8 +252,18 @@ void MarchingSquares::invoke(double **cvalues, double ***mvalues, int *svalues)
 
     case 10:
       nsurf = 2;
-      ave = 0.25 * (v00 + v01 + v10 + v11);
-      if (ave > thresh) {
+
+      //if (sphereflag) {
+      //  if (v00+v11 >= sqrt2) in_flag = 1;
+      //  else if (v01+v10 >= sqrt2) in_flag = 1;
+      //  else in_flag = 0;
+      //} else {
+        ave = 0.25 * (v00 + v01 + v10 + v11);
+        if (ave > thresh) in_flag = 1;
+        else in_flag = 0;
+      //}
+
+      if (in_flag) {
         pt[0][0] = i0;
         pt[0][1] = lo[1];
         pt[1][0] = lo[0];
@@ -320,5 +364,37 @@ double MarchingSquares::interpolate(double v0, double v1, double lo, double hi)
   double ibuffer = (hi-lo)*mindist;
   value = MAX(value,lo+ibuffer);
   value = MIN(value,hi-ibuffer);
+  return value;
+}
+
+/* ----------------------------------------------------------------------
+   interpolate function used by both marching squares and cubes
+   lo/hi = coordinates of end points of edge of square
+   v0/v1 = values at lo/hi end points
+   value = interpolated coordinate for thresh value
+------------------------------------------------------------------------- */
+
+double MarchingSquares::extrapolate(double v0, double v1, double lo, double hi)
+{
+  double cmax = 255.0;
+  if (v0 < 0 || v1 < 0) error->one(FLERR,"negative val");
+  if (v0 > cmax || v1 > cmax) error->one(FLERR,"big val");
+
+  // both inside or both outside
+  if (v0 > 0 && v1 > 0) return 0;
+  else if (v0 == 0 && v1 == 0) return 0; 
+
+  // extrapolate from inside
+  double value;
+  if (v0 > v1) value = lo + (hi-lo)*(v0/cmax);
+  else value = lo + (hi-lo)*(1.0-v1/cmax);
+
+  if (value > hi || value < lo) error->one(FLERR,"Vertex off edge");
+
+  // buffer to avoid degenerate triangles
+  double ibuffer = (hi-lo)*mindist;
+  value = MAX(value,lo+ibuffer);
+  value = MIN(value,hi-ibuffer);
+
   return value;
 }

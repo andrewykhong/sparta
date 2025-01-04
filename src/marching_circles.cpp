@@ -315,19 +315,26 @@ void MarchingCircles::invoke(double **cvalues, double ***mvalues, int *svalues)
 
 double MarchingCircles::extrapolate(double v0, double v1, double lo, double hi)
 {
+  double cmax = 255.0;
+  if (v0 < 0 || v1 < 0) error->one(FLERR,"negative val");
+  if (v0 > cmax || v1 > cmax) error->one(FLERR,"big val");
+
   // both inside or both outside
   if (v0 > 0 && v1 > 0) return 0;
   else if (v0 == 0 && v1 == 0) return 0; 
 
   // extrapolate from inside
   double value;
-  if (v0 > 0) value = lo + v0/255.0*(hi-lo);
-  else value = hi - v1/255.0*(hi-lo);
+  if (v0 > v1) value = lo + (hi-lo)*(v0/cmax);
+  else value = lo + (hi-lo)*(1.0-v0/cmax);
+
+  if (value > hi || value < lo) error->one(FLERR,"Vertex off edge");
 
   // buffer to avoid degenerate triangles
   double ibuffer = (hi-lo)*mindist;
   value = MAX(value,lo+ibuffer);
   value = MIN(value,hi-ibuffer);
+
   return value;
 }
 

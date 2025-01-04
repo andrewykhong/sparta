@@ -157,9 +157,6 @@ void CreateISurf::command(int narg, char **arg)
   thresh = input->numeric(FLERR,arg[2]);
   if (thresh < 0 || thresh > 255)
     error->all(FLERR,"Create_isurf thresh must be bounded as (0,255)");
-  int ithresh = static_cast<int> (thresh);
-  if (ithresh == thresh)
-    error->all(FLERR,"An integer value for create_isurf thresh is not allowed");
 
   // mode to determine corner values
 
@@ -1556,9 +1553,8 @@ void CreateISurf::set_cvalues_voxel()
     dy = cells[icell].hi[1] - cells[icell].lo[1];
     dz = cells[icell].hi[2] - cells[icell].lo[2];
     sfrac = (dx*dy*dz - cvol) / (dx*dy*dz);
-
-    if (sfrac < 0.0 || sfrac > 1.0)
-      error->one(FLERR,"Calculated solid fraction above one or negative");
+    sfrac = MAX(sfrac,0.0);
+    sfrac = MIN(sfrac,1.0);
 
     for (int ic = 0; ic < ncorner; ic++)
       tmp_cvalues[icell][ic] = MIN(MAX(sfrac*cin,0.0),255.0);

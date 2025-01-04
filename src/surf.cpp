@@ -1560,6 +1560,7 @@ int Surf::rendezvous_watertight_3d(int n, char *inbuf, int &flag, int *&proclist
   int which,value;
 
   int ndup = 0;
+  int out =  0;
   for (int i = 0; i < n; i++) {
     x1 = inedge[i].x1; x2 = inedge[i].x2;
     key.pts[0] = x1[0]; key.pts[1] = x1[1]; key.pts[2] = x1[2];

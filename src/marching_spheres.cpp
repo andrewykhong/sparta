@@ -79,6 +79,7 @@ void MarchingSpheres::invoke(double **cvalues, double ***mvalues, int *svalues, 
   MyPage<surfint> *csurfs = grid->csurfs;
   int nglocal = grid->nlocal;
   int groupbit = grid->bitmask[ggroup];
+  double eps = 0.001;
 
   bigint maxsurfID = 0;
   if (sizeof(surfint) == 4) maxsurfID = MAXSMALLINT;
@@ -181,14 +182,14 @@ void MarchingSpheres::invoke(double **cvalues, double ***mvalues, int *svalues, 
 
     // make bits 2, 3, 6 and 7 consistent with Lewiner paper (see NOTE above)
 
-    bit0 = v000 <= 0 ? 0 : 1;
-    bit1 = v001 <= 0 ? 0 : 1;
-    bit2 = v011 <= 0 ? 0 : 1;
-    bit3 = v010 <= 0 ? 0 : 1;
-    bit4 = v100 <= 0 ? 0 : 1;
-    bit5 = v101 <= 0 ? 0 : 1;
-    bit6 = v111 <= 0 ? 0 : 1;
-    bit7 = v110 <= 0 ? 0 : 1;
+    bit0 = v000 <= thresh ? 0 : 1;
+    bit1 = v001 <= thresh ? 0 : 1;
+    bit2 = v011 <= thresh ? 0 : 1;
+    bit3 = v010 <= thresh ? 0 : 1;
+    bit4 = v100 <= thresh ? 0 : 1;
+    bit5 = v101 <= thresh ? 0 : 1;
+    bit6 = v111 <= thresh ? 0 : 1;
+    bit7 = v110 <= thresh ? 0 : 1;
 
     which = (bit7 << 7) + (bit6 << 6) + (bit5 << 5) + (bit4 << 4) +
       (bit3 << 3) + (bit2 << 2) + (bit1 << 1) + bit0;
@@ -509,19 +510,26 @@ void MarchingSpheres::invoke(double **cvalues, double ***mvalues, int *svalues, 
 
 double MarchingSpheres::extrapolate(double v0, double v1, double lo, double hi)
 {
+  double cmax = 255.0;
+  if (v0 < 0 || v1 < 0) error->one(FLERR,"negative val");
+  if (v0 > cmax || v1 > cmax) error->one(FLERR,"big val");
+
   // both inside or both outside
   if (v0 > 0 && v1 > 0) return 0;
   else if (v0 == 0 && v1 == 0) return 0; 
 
   // extrapolate from inside
   double value;
-  if (v0 > 0) value = lo + v0/255.0*(hi-lo);
-  else value = hi - v1/255.0*(hi-lo);
+  if (v0 > v1) value = lo + (hi-lo)*(v0/cmax);
+  else value = lo + (hi-lo)*(1.0-v0/cmax);
+
+  if (value > hi || value < lo) error->one(FLERR,"Vertex off edge");
 
   // buffer to avoid degenerate triangles
   double ibuffer = (hi-lo)*mindist;
   value = MAX(value,lo+ibuffer);
   value = MIN(value,hi-ibuffer);
+
   return value;
 }
 
