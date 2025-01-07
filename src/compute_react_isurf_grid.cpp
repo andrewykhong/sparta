@@ -29,6 +29,7 @@
 using namespace SPARTA_NS;
 
 enum{REACTANT,PRODUCT};
+enum{MASS,COUNT};
 #define DELTA 4096
 
 /* ---------------------------------------------------------------------- */
@@ -52,12 +53,16 @@ ComputeReactISurfGrid(SPARTA *sparta, int narg, char **arg) :
   rpflag = 0;
   reaction2col = NULL;
 
+  if (strcmp(arg[4],"mass") == 0) outtype = MASS;
+  else if (strcmp(arg[4],"count") == 0) outtype = COUNT;
+  else error->all(FLERR,"Option not valid"); 
+
   // parse per-column reactant/product args
   // reset rpflag = 1 and ntotal = # of args
 
-  if (narg > 4) {
+  if (narg > 5) {
     rpflag = 1;
-    int ncol = narg - 4;
+    int ncol = narg - 5;
     memory->create(reaction2col,ntotal,ncol,"react/surf:reaction2col");
     for (int i = 0; i < ntotal; i++)
       for (int j = 0; j < ncol; j++)
@@ -90,7 +95,7 @@ ComputeReactISurfGrid(SPARTA *sparta, int narg, char **arg) :
       icol++;
       iarg++;
     }
-    ntotal = narg - 4;
+    ntotal = narg - 5;
   }
 
   per_grid_flag = 1;
@@ -230,6 +235,34 @@ void ComputeReactISurfGrid::surf_tally(int isurf, int icell, int reaction,
     if (tris[isurf].isr != isr) return;
   }
 
+  Particle::Species *species = particle->species;
+
+  int iosp,isp,jsp;
+  double del = 0; // mass change
+
+  // gained from incident particles
+  if (iorig) {
+    iosp = iorig->ispecies;
+    del += species[iosp].mass*update->fnum;
+  }
+
+  // lose from exiting particles
+  if (ip) {
+    isp = ip->ispecies;
+    del -= species[isp].mass*update->fnum;
+  }
+  if (jp) {
+    jsp = jp->ispecies;
+    del -= species[jsp].mass*update->fnum;
+  }
+
+  // if count, just count if net mass loss or gain
+  if (outtype == COUNT) {
+    if (del > 0) del = 1;
+    else if (del < 0) del = -1;
+    else del = 0;
+  }
+
   // itally = tally index of isurf
   // if 1st reaction on this isurf, add surf ID to hash
   // grow tally list if needed
@@ -261,8 +294,8 @@ void ComputeReactISurfGrid::surf_tally(int isurf, int icell, int reaction,
   if (rpflag) {
     int *r2c = reaction2col[reaction];
     for (int i = 0; i < ntotal; i++)
-      if (r2c[i]) vec[i] += 1.0;
-  } else vec[reaction] += 1.0;
+      if (r2c[i]) vec[i] += del;
+  } else vec[reaction] += del;
 }
 
 /* ----------------------------------------------------------------------

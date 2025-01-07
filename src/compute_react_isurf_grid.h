@@ -53,6 +53,8 @@ class ComputeReactISurfGrid : public Compute {
   int maxtally;            // # of tallies currently allocated
   surfint *tally2surf;     // tally2surf[I] = surf ID of Ith tally
 
+  int outtype;             // what quantity to output (mass or number)
+
   // hash for surf IDs
 
 #ifdef SPARTA_MAP

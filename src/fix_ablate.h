@@ -140,9 +140,9 @@ class FixAblate : public Fix {
 
   // for Marching spheres
   void decrement_sphere();
-  int sync_sphere(int const);
-  void count_vertices();
-  void pass_negative();
+  void sync_sphere(int);
+  void count_interface();
+  void pass_remain(int);
 
   void mark_corners_2d(int);
   void mark_corners_3d(int);
