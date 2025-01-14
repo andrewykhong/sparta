@@ -494,7 +494,7 @@ void FixAblate::end_of_step()
       //if (multi_val_flag) error->one(FLERR,"Not supported");
       decrement_sphere();
 
-      if (false) {
+      if (carryflag) {
         Nout = sync_sphere(0);
         MPI_Allreduce(&Nout,&allNout,1,MPI_INT,MPI_SUM,world);
 

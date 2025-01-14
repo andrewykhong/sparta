@@ -157,7 +157,6 @@ int FixAblate::sync_sphere(int bound)
   Grid::ChildCell *cells = grid->cells;
   Grid::ChildInfo *cinfo = grid->cinfo;
 
-  int nbig = 0;
   for (icell = 0; icell < nglocal; icell++) {
     if (!(cinfo[icell].mask & groupbit)) continue;
     if (cells[icell].nsplit <= 0) continue;
@@ -194,8 +193,6 @@ int FixAblate::sync_sphere(int bound)
         } // end jy
       } // end jz
 
-      if (total == 0.0) continue;
-
       cvalues[icell][i] += total;
       if (cvalues[icell][i] < 0) anyout = 1;
       else if (cvalues[icell][i] > 255.0) anyout = 1;
@@ -203,8 +200,8 @@ int FixAblate::sync_sphere(int bound)
       // move epsilon_adjust here
       if (bound) {
         if (cvalues[icell][i] <= thresh) {
-          if (total > 0) cvalues[icell][i] = thresh+EPSILON;
-          else cvalues[icell][i] = 0.0;
+          if (total <= 0.0) cvalues[icell][i] = 0.0;
+          else cvalues[icell][i] = thresh+EPSILON;
         } else cvalues[icell][i] = MIN(cvalues[icell][i],255.0);
       }
 
@@ -238,10 +235,10 @@ void FixAblate::count_interface()
   double ninter;
 
   for (int icell = 0; icell < nglocal; icell++) {
-    for (i = 0; i < ncorner; i++) nvert[icell][i] = 0.0;
-
     if (!(cinfo[icell].mask & groupbit)) continue;
     if (cells[icell].nsplit <= 0) continue;
+
+    for (i = 0; i < ncorner; i++) nvert[icell][i] = 0.0;
 
     if (dim == 2) mark_corners_2d(icell);
     else mark_corners_3d(icell);
