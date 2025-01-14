@@ -491,10 +491,10 @@ void FixAblate::end_of_step()
   //cellloss = 0;
   if (multi_dec_flag) {
     if (sphereflag) {
-      if (multi_val_flag) error->one(FLERR,"Not supported");
+      //if (multi_val_flag) error->one(FLERR,"Not supported");
       decrement_sphere();
 
-      if (carryflag) {
+      if (false) {
         Nout = sync_sphere(0);
         MPI_Allreduce(&Nout,&allNout,1,MPI_INT,MPI_SUM,world);
 
@@ -555,7 +555,7 @@ void FixAblate::end_of_step()
   // adjust individual corner point values too close to threshold
 
   if (multi_val_flag) epsilon_adjust_multiv();
-  else epsilon_adjust();
+  else if (!sphereflag) epsilon_adjust();
 
   // re-create implicit surfs
 
@@ -988,13 +988,6 @@ void FixAblate::set_delta()
       for (i = 0; i < nglocal; i++)
         celldelta[i] = prefactor * farray[i][im1];
     }
-
-    // DEBUG
-    //for (i = 0; i < nglocal; i++) {
-    //  if (celldelta[i] > 0)
-    //    printf("%4.3e\n", celldelta[i]);
-    //}
-    //error->one(FLERR,"ck");
 
   } else if (which == VARIABLE) {
     if (nglocal > maxvar) {

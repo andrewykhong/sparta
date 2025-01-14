@@ -92,7 +92,7 @@ void FixAblate::decrement_sphere()
 
       ninter = 0;
       for (k = 0; k < dim; k++)
-        if (refcorners[neighbors[k]] == 0) ninter++;
+        if (refcorners[neighbors[k]] != 1) ninter++;
 
       if (ninter == 0) continue;
       iupdate[i] = 1;
@@ -102,6 +102,7 @@ void FixAblate::decrement_sphere()
     // perout is how much to decrement at each interface point
 
     total = celldelta[icell];
+    if (total == 0.0) continue;
     perout = total/Nin;
 
     for (i = 0; i < ncorner; i++) {
@@ -110,8 +111,9 @@ void FixAblate::decrement_sphere()
       if (iupdate[i]) {
         if (carryflag) cdelta[icell][i] += perout;
         else {
-          if (total < 0) cdelta[icell][i] += perout;
-          else if (total > 0) {
+          if (total < 0) {
+            cdelta[icell][i] += perout;
+          } else if (total > 0) {
             double dc = 255.0-cvalues[icell][i];
             if (perout <= dc) cdelta[icell][i] += perout;
             else {
@@ -133,8 +135,8 @@ void FixAblate::decrement_sphere()
           }
         }
       } // if update
-    } // end corners
 
+    } // end corners
   } // end cells
 }
 
@@ -155,6 +157,7 @@ int FixAblate::sync_sphere(int bound)
   Grid::ChildCell *cells = grid->cells;
   Grid::ChildInfo *cinfo = grid->cinfo;
 
+  int nbig = 0;
   for (icell = 0; icell < nglocal; icell++) {
     if (!(cinfo[icell].mask & groupbit)) continue;
     if (cells[icell].nsplit <= 0) continue;
@@ -191,28 +194,18 @@ int FixAblate::sync_sphere(int bound)
         } // end jy
       } // end jz
 
+      if (total == 0.0) continue;
+
       cvalues[icell][i] += total;
       if (cvalues[icell][i] < 0) anyout = 1;
       else if (cvalues[icell][i] > 255.0) anyout = 1;
 
-      // record loss (TODO: temp)
-
-      /*if (bound) {
-        if (multi_val_flag) {
-          for (j = 0; j < nmultiv; j++)
-            if (mvalues[icell][i][j] < 0) closs += (mvalues[icell][i][j]/nmultiv);
-        } else if (cvalues[icell][i] < 0) closs += cvalues[icell][i];
-        if (fabs(total[0]) > 0) cellloss += 1.0;
-        else if (fabs(total[1]) > 0) cellloss += 1.0;
-        else if (fabs(total[2]) > 0) cellloss += 1.0;
-        else if (fabs(total[3]) > 0) cellloss += 1.0;
-        else if (fabs(total[4]) > 0) cellloss += 1.0;
-        else if (fabs(total[5]) > 0) cellloss += 1.0;
-      }*/
-
+      // move epsilon_adjust here
       if (bound) {
-        if (cvalues[icell][i] < 0) cvalues[icell][i] = 0.0;
-        else if (cvalues[icell][i] > 255.0) cvalues[icell][i] = 255.0;
+        if (cvalues[icell][i] <= thresh) {
+          if (total > 0) cvalues[icell][i] = thresh+EPSILON;
+          else cvalues[icell][i] = 0.0;
+        } else cvalues[icell][i] = MIN(cvalues[icell][i],255.0);
       }
 
     } // end corners
@@ -245,10 +238,10 @@ void FixAblate::count_interface()
   double ninter;
 
   for (int icell = 0; icell < nglocal; icell++) {
+    for (i = 0; i < ncorner; i++) nvert[icell][i] = 0.0;
+
     if (!(cinfo[icell].mask & groupbit)) continue;
     if (cells[icell].nsplit <= 0) continue;
-
-    for (i = 0; i < ncorner; i++) nvert[icell][i] = 0.0;
 
     if (dim == 2) mark_corners_2d(icell);
     else mark_corners_3d(icell);
@@ -264,8 +257,8 @@ void FixAblate::count_interface()
         for (k = 0; k < dim; k++)
           if (refcorners[neighbors[k]] == 0) nvert[icell][i] += 1.0;
       }
-
     } // end corners
+
   } // end cells
 }
 
@@ -343,15 +336,19 @@ void FixAblate::pass_remain(int overflow)
       if (dim == 2) nvertices *= 0.5;
       else nvertices *= 0.25;
 
-      if (nvertices > 6 || nvertices < 1)
+      if (nvertices > 2*dim) {
+        printf("Too many vertices found: %i\n",nvertices);
         error->one(FLERR,"Vertices counted wrong");
+      }
 
       /*---------------------------------------------------------------*/
 
-      // avoids multi-counting in sync
+      // avoids multi-counting in sync_sphere
       double fac;
       if (dim == 2) fac = 0.5;
       else fac = 0.25;
+
+      if (nvertices < 1) fac = 0.0;
 
       // pass over or negative values to neighboring interface points
       neighbors = corner_neighbor[i];
@@ -671,8 +668,8 @@ void FixAblate::decrement_multid_inside()
         // each cell edge is touched by two (four) cells in 2D (3D)
         // scale appropriately to avoid multi-counting
 
-        if (dim == 2) nvertices *= 0.25;
-        else nvertices *= 0.125;
+        if (dim == 2) nvertices *= 0.5;
+        else nvertices *= 0.25;
 
         // determines which corners are the neighbors of "i"
 
@@ -767,8 +764,8 @@ void FixAblate::sync_multid_inside()
         // decrement will be counted by the number of cells which share
         // a common edge. This is 2 in 2D and 4 in 3D
 
-        if (dim == 2) total *= 0.25;
-        else total *= 0.125;
+        if (dim == 2) total *= 0.5;
+        else total *= 0.25;
 
         cvalues[icell][i] -= total;
       }

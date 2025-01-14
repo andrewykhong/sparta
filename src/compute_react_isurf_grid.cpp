@@ -253,6 +253,7 @@ void ComputeReactISurfGrid::surf_tally(int isurf, int icell, int reaction,
     isp = ip->ispecies;
     del -= species[isp].mass*update->fnum;
   }
+
   if (jp) {
     jsp = jp->ispecies;
     del -= species[jsp].mass*update->fnum;
