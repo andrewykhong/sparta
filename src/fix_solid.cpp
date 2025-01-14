@@ -85,73 +85,6 @@ FixSolid::FixSolid(SPARTA *sparta, int narg, char **arg) :
 
   Tp0 = atof(arg[3]);
 
-  // compute for temperature and pressure (should be that of mixture)
-
-  /*
-  // check if compute ids valid
-
-  argindex = new int[2];
-  value2index = new int[2];
-  post_process = new int[2];
-  ids = new char*[2];
-
-  int j = 0;
-  for (int i = 4; i < 6; i++) {
-    if (arg[i][0] != 'c') error->all(FLERR,"Fix solid requires computes only");
-
-    // check if 
-    int n = strlen(arg[i]);
-    char *suffix = new char[n];
-    strcpy(suffix,&arg[i][2]);
-
-    // store compute id index
-    char *ptr = strchr(suffix,'[');
-    if (ptr) {
-      if (suffix[strlen(suffix)-1] != ']')
-        error->all(FLERR,"Illegal fix solid command - Improper compute format");
-      argindex[j] = atoi(ptr+1);
-      *ptr = '\0';
-    } else argindex[j] = 0;
-
-    // store compute id
-    n = strlen(suffix) + 1;
-    ids[j] = new char[n];
-    strcpy(ids[j],suffix);
-    delete [] suffix;
-
-    // various checks for correct compute type
-    int icompute = modify->find_compute(ids[j]);
-
-    if (icompute < 0)
-      error->all(FLERR,"Compute ID for fix ave/grid does not exist");
-    if (modify->compute[icompute]->per_grid_flag == 0)
-      error->all(FLERR,
-                 "Compute lambda/grid compute does not calculate per-grid values");
-    if (argindex[j] == 0 &&
-        modify->compute[icompute]->size_per_grid_cols != 0)
-      error->all(FLERR,"Compute lambda/grid compute does not "
-                 "calculate per-grid vector");
-    if (argindex[j] &&
-        modify->compute[icompute]->size_per_grid_cols == 0)
-      error->all(FLERR,"Compute lambda/grid compute does not "
-                 "calculate per-grid array");
-    if (argindex[j] &&
-        argindex[j] > modify->compute[icompute]->size_per_grid_cols)
-      error->all(FLERR,"Compute lambda/grid compute array is accessed out-of-range");
-
-    post_process[j] =
-      modify->compute[icompute]->post_process_grid_flag;
-    value2index[j] = icompute;
-
-    j++;
-  }
-
-  memory->create(cell_Tp,nglocal,2,"fix/solid:cell_Tp");
-  for (int i = 0; i < nglocal; i++)
-    for (int j = 0; j < 2; j++)
-      cell_Tp[i][j] = 0.0;
-  */
-
   // optional args
 
   ifix = -1;
@@ -356,7 +289,7 @@ void FixSolid::end_of_step()
   // force model type
 
   if (force_type == GREEN) update_Fq_fm();
-  else if (force_type == LOTH) update_Fq_emp();
+  //else if (force_type == LOTH) update_Fq_emp();
 
   if (update->ntimestep % nevery) return;
 
@@ -372,7 +305,7 @@ void FixSolid::end_of_step()
   // For debugging
   if (reset_flag) reset_velocities(0);
 
-
+  return;
 }
 
 /* ---------------------------------------------------------------------- */

@@ -163,25 +163,25 @@ void FixSolid::update_Fq_fm()
 
             double F[3], Q;
             if (shape == SPHERE) {
-              csx = Rp*Rp*MY_PI;
               Fsphere(c, cmag, cp, F, Q);
+              csx = Rp*Rp*MY_PI;
               for (int d = 0; d < dim; d++) Fg[d] += mass*csx*F[d];
               Eg += 0.5*mass*csx*Q;
             } else if (shape == DISC) {
-              csx = Rp*Rp*MY_PI;
               Fdisc(c, cmag, cp, theta, phi, F, Q);
+              csx = Rp*Rp*MY_PI;
               for (int d = 0; d < dim; d++) Fg[d] += mass*csx*F[d];
               Eg += 0.5*mass*csx*Q;
             } else if (shape == CYLINDER) {
               // disc part first
-              csx = Rp*Rp*MY_PI;
               Fdisc(c, cmag, cp, theta, phi, F, Q);
+              csx = Rp*Rp*MY_PI;
               for (int d = 0; d < dim; d++) Fg[d] += mass*csx*F[d];
               Eg += 0.5*mass*csx*Q;
 
               // then half cylinder
-              csx = Rp*Lp;
               Fcyl(c, cmag, cp, theta, phi, F, Q);
+              csx = Rp*Lp;
               for (int d = 0; d < dim; d++) Fg[d] += mass*csx*F[d];
               Eg += 0.5*mass*csx*Q;
             } else if (shape == CUSTOM) {
@@ -231,78 +231,6 @@ void FixSolid::update_Fq_fm()
 }
 
 /* ----------------------------------------------------------------------
-   Empirical drag and heat flux laws
----------------------------------------------------------------------- */
-
-void FixSolid::update_Fq_emp()
-{
-  // grab various particle and grid quantities
-
-  Particle::OnePart *particles = particle->particles;
-  Particle::Species *species = particle->species;
-  int *next = particle->next;
-  Grid::ChildInfo *cinfo = grid->cinfo;
-
-  // solid particle related vectors
-
-  double **solid_array = particle->edarray[particle->ewhich[index_solid_params]];
-  double **solid_force = particle->edarray[particle->ewhich[index_solid_force]];
-  double **solid_bulk  = particle->edarray[particle->ewhich[index_solid_bulk]];
-
-  int i,j,k,icell,ip,is; // dummy indices
-  int ispecies, sid; // species of particle i; particle indices of solid particles
-  int np, nsolid; // number of total simulators; number of solid simulators
-  double Rp,mp,Tp,csp; // particle radius, mass, temperature, and specific heat
-  double Lp, theta, phi; // particle length and direction of norm
-  double c[3],cmag; // thermal velocity of gas and solid particles
-  double *u,*up;  // velocity of gas and solid particles
-  double mv[3], mvsq, um[3]; // drift velocity (zero if no charge or gravity) 
-  double Fg[3],Eg; // force and energy as defined by Green function
-  double totalmass; // for calculating temperature
-  double mass,T,p; // gas particle mass, gas temperature and pressure
-  double csx,cp; // solid particle cross section and thermal velocity
-  double frat; // ratio of gas to solid weight
-  double prefactor; // prefactor
-  double Fi[3], Fs[3], Fd[3], Fa[3]; // prefactors for forces
-  double Qi, Qs, Qd, Qa; // prefactors for heat
-  double erot;
-  int nrot;
-
-  double Fgtotal[3], Egtotal; // total force and energy change
-
-  for (icell = 0; icell < nglocal; icell++) {
-
-    // DEBUG
-    if (reset_flag) {
-      array_grid[icell][0] = 0.0;
-      array_grid[icell][1] = 0.0;
-      array_grid[icell][2] = 0.0;
-      array_grid[icell][3] = 0.0;
-      array_grid[icell][4] = 0.0;
-      array_grid[icell][5] = 0.0;
-      array_grid[icell][6] = 0.0;
-    }
-
-    np = cinfo[icell].count;
-    if (np <= 1) continue;
-
-    // only need ids
-
-    if (np > npmax) {
-      while (np > npmax) npmax += DELTAPART;
-      memory->destroy(id);
-      memory->create(id,npmax,"soliddrag:id");
-    }
-
-
-  } // end cells
-
-  // number of samples
-  nsample++;
-  return;
-}
-
-/* ----------------------------------------------------------------------
    Sphere Green's Function
 ---------------------------------------------------------------------- */
 
@@ -343,31 +271,62 @@ void FixSolid::Fdisc(const double *c, const double cmag, const double cp, const 
   double Fi[3], Fs[3], Fd[3], Fa[3];
   double Qi, Qs, Qd, Qa;
 
-  // first facee
-  double norm[3];
+  double norm[3]; // disc normal
   norm[0] = cos(theta)*sin(phi);
   norm[1] = sin(theta)*sin(phi);
   norm[2] = cos(phi);
   if(abs(norm[0]) < 1e-16) norm[0] = 0.0;
   if(abs(norm[1]) < 1e-16) norm[1] = 0.0;
   if(abs(norm[2]) < 1e-16) norm[2] = 0.0;
+  double mag = sqrt(norm[0]*norm[0]+norm[1]*norm[1]+norm[2]*norm[2]);
+  norm[0] /= mag;
+  norm[1] /= mag;
+  norm[2] /= mag;
 
-  // cos(theta) should always be a positive value
-  double orth[3]; // yhat
+  double orth[3]; // xhat
   orth[0] = cos(theta)*cos(phi);
-  orth[1] = sin(theta)*sin(phi);
+  orth[1] = sin(theta)*cos(phi);
   orth[2] = -sin(phi);
   if(abs(orth[0]) < 1e-16) orth[0] = 0.0;
   if(abs(orth[1]) < 1e-16) orth[1] = 0.0;
   if(abs(orth[2]) < 1e-16) orth[2] = 0.0;
+  mag = sqrt(orth[0]*orth[0]+orth[1]*orth[1]+orth[2]*orth[2]);
+  orth[0] /= mag;
+  orth[1] /= mag;
+  orth[2] /= mag;
 
-  double orth1[3]; // zhat
+  double orth1[3]; // yhat
   orth1[0] = -sin(theta);
   orth1[1] = cos(theta);
   orth1[2] = 0.0;
   if(abs(orth1[0]) < 1e-16) orth1[0] = 0.0;
   if(abs(orth1[1]) < 1e-16) orth1[1] = 0.0;
   if(abs(orth1[2]) < 1e-16) orth1[2] = 0.0;
+  mag = sqrt(orth1[0]*orth1[0]+orth1[1]*orth1[1]+orth1[2]*orth1[2]);
+  orth1[0] /= mag;
+  orth1[1] /= mag;
+  orth1[2] /= mag;
+
+  // randomly rotate using rodrigues axis-angle
+  double rot_theta = random->uniform()*2.0*MY_PI;
+  double ctht = cos(rot_theta);
+  double octht = 1.0-ctht;
+  double stht = sin(rot_theta);
+
+  double qorth = norm[0]*orth[0]+norm[1]*orth[1]+norm[2]*orth[2];
+  double qorth1 = norm[0]*orth1[0]+norm[1]*orth1[1]+norm[2]*orth1[2];
+
+  double csx3[3];
+
+  MathExtra::cross3(norm,orth,csx3);
+  orth[0] = ctht*orth[0]+stht*csx3[0]+qorth*norm[0]*octht;
+  orth[1] = ctht*orth[1]+stht*csx3[1]+qorth*norm[1]*octht;
+  orth[2] = ctht*orth[2]+stht*csx3[2]+qorth*norm[2]*octht;
+
+  MathExtra::cross3(norm,orth1,csx3);
+  orth1[0] = ctht*orth1[0]+stht*csx3[0]+qorth1*norm[0]*octht;
+  orth1[1] = ctht*orth1[1]+stht*csx3[1]+qorth1*norm[1]*octht;
+  orth1[2] = ctht*orth1[2]+stht*csx3[2]+qorth1*norm[2]*octht;
 
   // need opposite sign for one associated with normal
   double alpha = -(norm[0]*c[0]+norm[1]*c[1]+norm[2]*c[2])/cmag;
@@ -416,7 +375,7 @@ void FixSolid::Fcyl(const double *c, const double cmag, const double cp, const d
   double Fi[3], Fs[3], Fd[3], Fa[3];
   double Qi, Qs, Qd, Qa;
 
-  // first facee
+  // aligned with cylinder axis
   double norm[3];
   norm[0] = cos(theta)*sin(phi);
   norm[1] = sin(theta)*sin(phi);
@@ -424,44 +383,74 @@ void FixSolid::Fcyl(const double *c, const double cmag, const double cp, const d
   if(abs(norm[0]) < 1e-16) norm[0] = 0.0;
   if(abs(norm[1]) < 1e-16) norm[1] = 0.0;
   if(abs(norm[2]) < 1e-16) norm[2] = 0.0;
+  double mag = sqrt(norm[0]*norm[0]+norm[1]*norm[1]+norm[2]*norm[2]);
+  norm[0] /= mag;
+  norm[1] /= mag;
+  norm[2] /= mag;
 
-  // cos(theta) should always be a positive value
-  double orth[3]; // yhat
+  double orth[3]; // xhat
   orth[0] = cos(theta)*cos(phi);
-  orth[1] = sin(theta)*sin(phi);
+  orth[1] = sin(theta)*cos(phi);
   orth[2] = -sin(phi);
   if(abs(orth[0]) < 1e-16) orth[0] = 0.0;
   if(abs(orth[1]) < 1e-16) orth[1] = 0.0;
   if(abs(orth[2]) < 1e-16) orth[2] = 0.0;
+  mag = sqrt(orth[0]*orth[0]+orth[1]*orth[1]+orth[2]*orth[2]);
+  orth[0] /= mag;
+  orth[1] /= mag;
+  orth[2] /= mag;
 
-  double orth1[3]; // zhat
+  double orth1[3]; // yhat
   orth1[0] = -sin(theta);
   orth1[1] = cos(theta);
   orth1[2] = 0.0;
   if(abs(orth1[0]) < 1e-16) orth1[0] = 0.0;
   if(abs(orth1[1]) < 1e-16) orth1[1] = 0.0;
   if(abs(orth1[2]) < 1e-16) orth1[2] = 0.0;
+  mag = sqrt(orth1[0]*orth1[0]+orth1[1]*orth1[1]+orth1[2]*orth1[2]);
+  orth1[0] /= mag;
+  orth1[1] /= mag;
+  orth1[2] /= mag;
 
-  // need opposite sign for one associated with normal
-  double alpha = -(norm[0]*c[0]+norm[1]*c[1]+norm[2]*c[2])/cmag;
-  double beta  = (orth[0]*c[0]+orth[1]*c[1]+orth[2]*c[2])/cmag;
-  double gamma = (orth1[0]*c[0]+orth1[1]*c[1]+orth1[2]*c[2])/cmag;
+  // randomly rotate using rodrigues axis-angle
+  double rot_theta = random->uniform()*2.0*MY_PI;
+  double ctht = cos(rot_theta);
+  double octht = 1.0-ctht;
+  double stht = sin(rot_theta);
+
+  double qorth = norm[0]*orth[0]+norm[1]*orth[1]+norm[2]*orth[2];
+  double qorth1 = norm[0]*orth1[0]+norm[1]*orth1[1]+norm[2]*orth1[2];
+
+  double csx3[3];
+
+  MathExtra::cross3(norm,orth,csx3);
+  orth[0] = ctht*orth[0]+stht*csx3[0]+qorth*norm[0]*octht;
+  orth[1] = ctht*orth[1]+stht*csx3[1]+qorth*norm[1]*octht;
+  orth[2] = ctht*orth[2]+stht*csx3[2]+qorth*norm[2]*octht;
+
+  MathExtra::cross3(norm,orth1,csx3);
+  orth1[0] = ctht*orth1[0]+stht*csx3[0]+qorth1*norm[0]*octht;
+  orth1[1] = ctht*orth1[1]+stht*csx3[1]+qorth1*norm[1]*octht;
+  orth1[2] = ctht*orth1[2]+stht*csx3[2]+qorth1*norm[2]*octht;
 
   // cos(theta) should always be a positive value
-  double cZ = norm[0]*c[0]+norm[1]*c[1]+norm[2]*c[2];
-  double sq_c = sqrt(cmag*cmag-cZ*cZ);
+  double cnorm = norm[0]*c[0]+norm[1]*c[1]+norm[2]*c[2];
+  double corth = (c[0]*orth[0]+c[1]*orth[1]+c[2]*orth[2])+
+                 (c[0]*orth1[0]+c[1]*orth1[1]+c[2]*orth1[2]);
 
   for (int d = 0; d < 3; d++) {
-    Fi[d] = 2.0*sq_c*c[d];
-    Fs[d] = 2.0/3.0*sq_c*(c[d]-4.0*cZ*norm[d]);
-    Fd[d] = pow(MY_PI,1.5)/4.0*cp*(c[d]-cZ*norm[d]);;
-    Fa[d] = MY_PI/3.0*cmag*(c[d]-cZ*norm[d]);;
+    //Fi[d] = 2.0*corth*c[d]; // ~ |c| (c.X) c
+    Fi[d] = 2.0*sqrt(cmag*cmag-cnorm*cnorm)*c[d];
+    //Fs[d] = 2.0/3.0*corth*(c[d]-4.0*cnorm*norm[d]); // ~ |c| (c.X) c
+    Fs[d] = 2.0/3.0*sqrt(cmag*cmag-cnorm*cnorm)*(c[d]-4.0*cnorm*norm[d]);
+    Fd[d] = pow(MY_PI,1.5)/4.0*cp*(c[d]-cnorm*norm[d]);
+    Fa[d] = MY_PI/3.0*cmag*(c[d]-cnorm*norm[d]);
   }
 
-  Qi = cmag*cmag*sq_c;
-  Qs = -cmag*cmag*sq_c;
-  Qd = -2.0*cp*cp*sq_c;
-  Qa = -cmag*cmag*sq_c;
+  Qi = cmag*cmag*corth;
+  Qs = -cmag*cmag*corth;
+  Qd = -2.0*cp*cp*corth;
+  Qa = -cmag*cmag*corth;
 
   for (int d = 0; d < dim; d++) 
     F[d] = (Fi[d]+c_spec*Fs[d]+c_diff*Fd[d]+c_adia*Fa[d]);
@@ -494,27 +483,62 @@ void FixSolid::Fcustom(const double *c, const double cmag, const double cp, doub
     phi = Sn[isurf][1];
     dS = Sn[isurf][2];
 
-    // grab surface element normal
+    norm[3];
     norm[0] = cos(theta)*sin(phi);
     norm[1] = sin(theta)*sin(phi);
     norm[2] = cos(phi);
     if(abs(norm[0]) < 1e-16) norm[0] = 0.0;
     if(abs(norm[1]) < 1e-16) norm[1] = 0.0;
     if(abs(norm[2]) < 1e-16) norm[2] = 0.0;
+    double mag = sqrt(norm[0]*norm[0]+norm[1]*norm[1]+norm[2]*norm[2]);
+    norm[0] /= mag;
+    norm[1] /= mag;
+    norm[2] /= mag;
 
+    orth[3]; // xhat
     orth[0] = cos(theta)*cos(phi);
-    orth[1] = sin(theta)*sin(phi);
+    orth[1] = sin(theta)*cos(phi);
     orth[2] = -sin(phi);
     if(abs(orth[0]) < 1e-16) orth[0] = 0.0;
     if(abs(orth[1]) < 1e-16) orth[1] = 0.0;
     if(abs(orth[2]) < 1e-16) orth[2] = 0.0;
+    mag = sqrt(orth[0]*orth[0]+orth[1]*orth[1]+orth[2]*orth[2]);
+    orth[0] /= mag;
+    orth[1] /= mag;
+    orth[2] /= mag;
 
+    orth1[3]; // yhat
     orth1[0] = -sin(theta);
     orth1[1] = cos(theta);
     orth1[2] = 0.0;
     if(abs(orth1[0]) < 1e-16) orth1[0] = 0.0;
     if(abs(orth1[1]) < 1e-16) orth1[1] = 0.0;
     if(abs(orth1[2]) < 1e-16) orth1[2] = 0.0;
+    mag = sqrt(orth1[0]*orth1[0]+orth1[1]*orth1[1]+orth1[2]*orth1[2]);
+    orth1[0] /= mag;
+    orth1[1] /= mag;
+    orth1[2] /= mag;
+
+    // randomly rotate using rodrigues axis-angle
+    double rot_theta = random->uniform()*2.0*MY_PI;
+    double ctht = cos(rot_theta);
+    double octht = 1.0-ctht;
+    double stht = sin(rot_theta);
+
+    double qorth = norm[0]*orth[0]+norm[1]*orth[1]+norm[2]*orth[2];
+    double qorth1 = norm[0]*orth1[0]+norm[1]*orth1[1]+norm[2]*orth1[2];
+
+    double csx3[3];
+
+    MathExtra::cross3(norm,orth,csx3);
+    orth[0] = ctht*orth[0]+stht*csx3[0]+qorth*norm[0]*octht;
+    orth[1] = ctht*orth[1]+stht*csx3[1]+qorth*norm[1]*octht;
+    orth[2] = ctht*orth[2]+stht*csx3[2]+qorth*norm[2]*octht;
+
+    MathExtra::cross3(norm,orth1,csx3);
+    orth1[0] = ctht*orth1[0]+stht*csx3[0]+qorth1*norm[0]*octht;
+    orth1[1] = ctht*orth1[1]+stht*csx3[1]+qorth1*norm[1]*octht;
+    orth1[2] = ctht*orth1[2]+stht*csx3[2]+qorth1*norm[2]*octht;
 
     // direction cosines
     alpha = MathExtra::dot3(norm,chat);
