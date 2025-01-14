@@ -29,7 +29,7 @@
 using namespace SPARTA_NS;
 
 enum{REACTANT,PRODUCT};
-enum{MASS,COUNT};
+enum{MASS,COUNT,REDUCE,ADD};
 #define DELTA 4096
 
 /* ---------------------------------------------------------------------- */
@@ -55,6 +55,8 @@ ComputeReactISurfGrid(SPARTA *sparta, int narg, char **arg) :
 
   if (strcmp(arg[4],"mass") == 0) outtype = MASS;
   else if (strcmp(arg[4],"count") == 0) outtype = COUNT;
+  else if (strcmp(arg[4],"reduce") == 0) outtype = REDUCE;
+  else if (strcmp(arg[4],"add") == 0) outtype = ADD;
   else error->all(FLERR,"Option not valid"); 
 
   // parse per-column reactant/product args
@@ -261,7 +263,10 @@ void ComputeReactISurfGrid::surf_tally(int isurf, int icell, int reaction,
     if (del > 0) del = 1;
     else if (del < 0) del = -1;
     else del = 0;
+  // any reaction leads to loss of one
   }
+  else if (outtype == REDUCE) del = -1;
+  else if (outtype == ADD) del = 1;
 
   // itally = tally index of isurf
   // if 1st reaction on this isurf, add surf ID to hash

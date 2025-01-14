@@ -486,20 +486,31 @@ void FixAblate::end_of_step()
   // 1) are multivalues used?
   // 2) is the decrement distributed to multiple corner points?
 
+  int Nout, allNout;
+  //closs = 0;
+  //cellloss = 0;
   if (multi_dec_flag) {
     if (sphereflag) {
       decrement_sphere();
-      sync_sphere(0);
+      sync_sphere(1);
 
-      // first handle negative values
-      //count_interface();
-      //pass_remain(0);
-      //sync_sphere(1);
+      /*if (!multi_val_flag) {
+        Nout = sync_sphere(0);
+        MPI_Allreduce(&Nout,&allNout,1,MPI_INT,MPI_SUM,world);
 
-      // now handle values > 255
-      //count_interface();
-      //pass_remain(1);
-      //sync_sphere(2);
+        while (allNout) {
+          // first handle values > 255
+          count_interface();
+          pass_remain(1);
+          sync_sphere(0);
+
+          // now handle negative values
+          count_interface();
+          pass_remain(0);
+          Nout = sync_sphere(0);
+          MPI_Allreduce(&Nout,&allNout,1,MPI_INT,MPI_SUM,world);
+        }
+      } else sync_sphere(1);*/
 
     } else {
       if (multi_val_flag) {
@@ -523,6 +534,22 @@ void FixAblate::end_of_step()
       sync();
     }
   }
+
+  // output loss to a file
+  /*double allcloss;
+  MPI_Allreduce(&closs,&allcloss,1,MPI_DOUBLE,MPI_SUM,world);
+
+  double allcellloss;
+  MPI_Allreduce(&cellloss,&allcellloss,1,MPI_DOUBLE,MPI_SUM,world);
+
+  double avgloss = allcloss/allcellloss;
+  if (allcellloss == 0) avgloss = 0.0;
+  if (comm->me == 0) {
+    FILE *file = fopen("loss.dat","a");
+    fprintf(file,"%4.3e\n",avgloss);
+    fclose(file);
+  }*/
+  
 
   // sync shared corner point values
   // adjust individual corner point values too close to threshold
@@ -1062,7 +1089,8 @@ void FixAblate::decrement()
       if (imin == -1) break;
 
       if (add) {
-        if (total + corners[imin] < 255.0) {
+        double tmp = total + corners[imin];
+        if (tmp <= 255.0) {
           cdelta[icell][imin] += total;
           total = 0.0;
         } else {
@@ -1160,12 +1188,19 @@ void FixAblate::sync()
         }
       }
 
-      cvalues[icell][i] += total;
-      if (cvalues[icell][i] < 0) cvalues[icell][i] = 0.0;
-      else if (cvalues[icell][i] > 255.0) cvalues[icell][i] = 255.0;
+      //if (fabs(total) > 0) cellloss += 1;
 
-    }
-  }
+      // bound values
+      double tmp = total + cvalues[icell][i];
+
+      // tally loss
+      //if (tmp < 0.0) closs += cvalues[icell][i];
+
+      if (tmp > 255.0) cvalues[icell][i] = 255.0;
+      else if (tmp < 0.0) cvalues[icell][i] = 0.0;
+      else cvalues[icell][i] += total;
+    } // end corners
+  } // end cells
 }
 
 /* ----------------------------------------------------------------------
@@ -1187,10 +1222,14 @@ void FixAblate::epsilon_adjust()
     if (cells[icell].nsplit <= 0) continue;
 
     for (i = 0; i < ncorner; i++) {
-      if (cvalues[icell][i] > 255.0)
-        error->one(FLERR,"Corner point value over 255.0");
-      if (cvalues[icell][i] < 0.0)
-        error->one(FLERR,"Negative corner point value");
+      if (cvalues[icell][i] > 255.0) {
+        printf("Corner point value over 255.0: %4.3e\n", cvalues[icell][i]);
+        cvalues[icell][i] = 255.0;
+      }
+      if (cvalues[icell][i] < 0.0) {
+        printf("Negative corner point value: %4.3e\n", cvalues[icell][i]);
+        cvalues[icell][i] = 0.0;
+      }
       if (cvalues[icell][i] > thresh-EPSILON && cvalues[icell][i] < thresh+EPSILON)
         cvalues[icell][i] = MAX(thresh-EPSILON,0.0);
     }

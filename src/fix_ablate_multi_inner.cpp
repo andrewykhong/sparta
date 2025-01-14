@@ -172,11 +172,13 @@ void FixAblate::decrement_sphere()
    Sync for above
 ------------------------------------------------------------------------- */
 
-void FixAblate::sync_sphere(int stage)
+int FixAblate::sync_sphere(int bound)
 {
   int i,j,ix,iy,iz,jx,jy,jz,ixfirst,iyfirst,izfirst,jcorner;
   int icell,jcell;
   double total[6];
+
+  int anyout = 0;
 
   comm_neigh_corners(CDELTA);
 
@@ -230,17 +232,44 @@ void FixAblate::sync_sphere(int stage)
       if (multi_val_flag) {
         for (j = 0; j < nmultiv; j++) {
           mvalues[icell][i][j] += total[j];
+          if (mvalues[icell][i][j] < 0) anyout = 1;
+          else if (mvalues[icell][i][j] > 255.0) anyout = 1;
+        }
+      } else {
+        cvalues[icell][i] += total[0];
+        if (cvalues[icell][i] < 0) anyout = 1;
+        else if (cvalues[icell][i] > 255.0) anyout = 1;
+      }
+
+      // record loss (TODO: temp)
+
+      /*if (bound) {
+        if (multi_val_flag) {
+          for (j = 0; j < nmultiv; j++)
+            if (mvalues[icell][i][j] < 0) closs += (mvalues[icell][i][j]/nmultiv);
+        } else if (cvalues[icell][i] < 0) closs += cvalues[icell][i];
+        if (fabs(total[0]) > 0) cellloss += 1.0;
+        else if (fabs(total[1]) > 0) cellloss += 1.0;
+        else if (fabs(total[2]) > 0) cellloss += 1.0;
+        else if (fabs(total[3]) > 0) cellloss += 1.0;
+        else if (fabs(total[4]) > 0) cellloss += 1.0;
+        else if (fabs(total[5]) > 0) cellloss += 1.0;
+      }*/
+
+      if (multi_val_flag) {
+        for (j = 0; j < nmultiv; j++) {
           if (mvalues[icell][i][j] < 0) mvalues[icell][i][j] = 0.0;
           else if (mvalues[icell][i][j] > 255.0) mvalues[icell][i][j] = 255.0;
         }
       } else {
-        cvalues[icell][i] += total[0];
         if (cvalues[icell][i] < 0) cvalues[icell][i] = 0.0;
         else if (cvalues[icell][i] > 255.0) cvalues[icell][i] = 255.0;
       }
 
     } // end corners
   } // end cells
+
+  return anyout;
 }
 
 /* ----------------------------------------------------------------------
@@ -363,25 +392,34 @@ void FixAblate::pass_remain(int overflow)
 
       if (dim == 2) nvertices *= 0.5;
       else nvertices *= 0.25;
+
+      if (nvertices > 6 || nvertices < 1)
+        error->one(FLERR,"Vertices counted wrong");
+
       /*---------------------------------------------------------------*/
-      
+
+      // avoids multi-counting
+      double fac;
+      if (dim == 2) fac = 0.5;
+      else fac = 0.25;
+
       // pass over or negative values to neighboring interface points
       neighbors = corner_neighbor[i];
       for (j = 0; j < dim; j++) {
         i_cneigh = neighbors[j];
         // decrement neighbor inside interface
-        if (cvalues[icell][i] < 0 && !overflow) {
+        if (cvalues[icell][i] < 0.0 && !overflow) {
           if(refcorners[i_cneigh] == 1)
-            cdelta[icell][i_cneigh] += cvalues[icell][i]/nvertices;
+            cdelta[icell][i_cneigh] += cvalues[icell][i]/nvertices*fac;
           // passed so zero
           cvalues[icell][i] = 0.0;
         // increase neighbor
         } else if (cvalues[icell][i] > 255.0 && overflow) {
           if (refcorners[i_cneigh] == 0)
-             cdelta[icell][i_cneigh] += (255.0-cvalues[icell][i])/nvertices;
+             cdelta[icell][i_cneigh] += (255.0-cvalues[icell][i])/nvertices*fac;
           // passed so cap
           cvalues[icell][i] = 255.0;
-        } else error->one(FLERR,"Should not be here!");
+        } // don't need else here since it'll confuse algorithm
       } // end dim
 
     } // end corner
@@ -439,7 +477,7 @@ void FixAblate::decrement_multid_outside()
     // perout is how much to decrement at each interface point
 
     Ninterface = find_ninter();
-    total = celldelta[icell];
+    total = fabs(celldelta[icell]); // TODO: TEMP
     perout = total/Ninterface;
 
     // iterate to find the number of vertices around each corner
@@ -599,7 +637,7 @@ void FixAblate::sync_multid_outside()
         } // end jy
       } // end jz
 
-      cvalues[icell][i] -= total;
+      cvalues[icell][i] -= fabs(total);
 
     } // end corners
   } // end cells
@@ -683,8 +721,8 @@ void FixAblate::decrement_multid_inside()
         // each cell edge is touched by two (four) cells in 2D (3D)
         // scale appropriately to avoid multi-counting
 
-        if (dim == 2) nvertices *= 0.5;
-        else nvertices *= 0.25;
+        if (dim == 2) nvertices *= 0.25;
+        else nvertices *= 0.125;
 
         // determines which corners are the neighbors of "i"
 
@@ -767,6 +805,9 @@ void FixAblate::sync_multid_inside()
         } // end jy
       } // end jz
 
+      // TODO: TEMP
+      total = fabs(total);
+
       // update the inside corner points based on the negative values
       // passed from interface points
 
@@ -776,8 +817,8 @@ void FixAblate::sync_multid_inside()
         // decrement will be counted by the number of cells which share
         // a common edge. This is 2 in 2D and 4 in 3D
 
-        if (dim == 2) total *= 0.5;
-        else total *= 0.25;
+        if (dim == 2) total *= 0.25;
+        else total *= 0.125;
 
         cvalues[icell][i] -= total;
       }

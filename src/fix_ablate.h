@@ -110,6 +110,10 @@ class FixAblate : public Fix {
 
   int refcorners[8];
 
+  // count total mass loss due to undershoot
+  double closs;
+  double cellloss; // total number of cells with solid
+
   class MarchingSquares *ms;
   class MarchingCubes *mc;
   class MarchingCircles *mci;
@@ -140,7 +144,7 @@ class FixAblate : public Fix {
 
   // for Marching spheres
   void decrement_sphere();
-  void sync_sphere(int);
+  int sync_sphere(int);
   void count_interface();
   void pass_remain(int);
 

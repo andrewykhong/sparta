@@ -590,6 +590,7 @@ double MarchingCubes::interpolate(double v0, double v1, double lo, double hi)
   double ibuffer = (hi-lo)*mindist;
   value = MAX(value,lo+ibuffer);
   value = MIN(value,hi-ibuffer);
+  if (value > hi || value < lo) error->one(FLERR,"Vertex off edge");
   return value;
 }
 
