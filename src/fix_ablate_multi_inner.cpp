@@ -71,11 +71,7 @@ void FixAblate::decrement_sphere()
     if (!(cinfo[icell].mask & groupbit)) continue;
     if (cells[icell].nsplit <= 0) continue;
 
-    for (i = 0; i < ncorner; i++) {
-      if (multi_val_flag) {
-        for (j = 0; j < nmultiv; j++) mdelta[icell][i][j] = 0.0;
-      } else cdelta[icell][i] = 0.0;
-    }
+    for (i = 0; i < ncorner; i++) cdelta[icell][i] = 0.0;
 
     nsurf = cells[icell].nsurf;
     if (!nsurf) continue; // if no surfs, no interface points
@@ -112,40 +108,16 @@ void FixAblate::decrement_sphere()
       neighbors = corner_neighbor[i];
 
       if (iupdate[i]) {
-      /*-----------------------------------------------------*/
-        if (multi_val_flag) {
-          if (total < 0) {
-            for (j = 0; j < nmultiv; j++) mdelta[icell][i][j] += perout;
-          } else if (total > 0) {
-            double dc;
-            for (j = 0; j < nmultiv; j++) {
-              dc = 255.0-mvalues[icell][i][j];
-              if (perout <= dc) mdelta[icell][i][j] += perout;
-              else mdelta[icell][i][j] += dc;
-            }
-
-            // for readability, handle overflow here
-            for (k = 0; k < dim; k++) {
-              dc = 255.0-mvalues[icell][i][k];
-              if (perout > dc) {
-                jc = neighbors[k];              
-                if (refcorners[jc] == 0) {
-                  // scale by dim 
-                  for (l = 0; l < nmultiv; l++) mdelta[icell][jc][l] += perout/dim;
-                }
-              } // check perout
-            } // end j - dim
-          } // end total sign check
-      /*-----------------------------------------------------*/
-        } else {
+        if (carryflag) cdelta[icell][i] += perout;
+        else {
           if (total < 0) cdelta[icell][i] += perout;
           else if (total > 0) {
             double dc = 255.0-cvalues[icell][i];
             if (perout <= dc) cdelta[icell][i] += perout;
             else {
               cdelta[icell][i] += dc;
-              // find neighbors which have "space"
 
+              // find neighbors which have "space"
               ninter = 0;
               for (k = 0; k < dim; k++) {
                 jc = neighbors[k];              
@@ -159,9 +131,7 @@ void FixAblate::decrement_sphere()
               }
             }
           }
-        } // if multval
-      /*-----------------------------------------------------*/
-
+        }
       } // if update
     } // end corners
 
@@ -176,7 +146,7 @@ int FixAblate::sync_sphere(int bound)
 {
   int i,j,ix,iy,iz,jx,jy,jz,ixfirst,iyfirst,izfirst,jcorner;
   int icell,jcell;
-  double total[6];
+  double total;
 
   int anyout = 0;
 
@@ -200,8 +170,7 @@ int FixAblate::sync_sphere(int bound)
       if (dim == 2) izfirst = 0;
       else izfirst = (i / 4) - 1;
 
-      total[0] = 0.0;
-      total[1] = total[2] = total[3] = total[4] = total[5] = 0.0;
+      total = 0.0;
       jcorner = ncorner;
 
       for (jz = izfirst; jz <= izfirst+1; jz++) {
@@ -215,31 +184,16 @@ int FixAblate::sync_sphere(int bound)
 
             jcell = walk_to_neigh(icell,jx,jy,jz);
 
-            if (multi_val_flag) {
-              for (j = 0; j < nmultiv; j++) {
-                if (jcell < nglocal) total[j] += mdelta[jcell][jcorner][j];
-                else total[j] += mdelta_ghost[jcell-nglocal][jcorner][j];
-              }
-            } else {
-              if (jcell < nglocal) total[0] += cdelta[jcell][jcorner];
-              else total[0] += cdelta_ghost[jcell-nglocal][jcorner];
-            }
+            if (jcell < nglocal) total += cdelta[jcell][jcorner];
+            else total += cdelta_ghost[jcell-nglocal][jcorner];
 
           } // end jx
         } // end jy
       } // end jz
 
-      if (multi_val_flag) {
-        for (j = 0; j < nmultiv; j++) {
-          mvalues[icell][i][j] += total[j];
-          if (mvalues[icell][i][j] < 0) anyout = 1;
-          else if (mvalues[icell][i][j] > 255.0) anyout = 1;
-        }
-      } else {
-        cvalues[icell][i] += total[0];
-        if (cvalues[icell][i] < 0) anyout = 1;
-        else if (cvalues[icell][i] > 255.0) anyout = 1;
-      }
+      cvalues[icell][i] += total;
+      if (cvalues[icell][i] < 0) anyout = 1;
+      else if (cvalues[icell][i] > 255.0) anyout = 1;
 
       // record loss (TODO: temp)
 
@@ -256,12 +210,7 @@ int FixAblate::sync_sphere(int bound)
         else if (fabs(total[5]) > 0) cellloss += 1.0;
       }*/
 
-      if (multi_val_flag) {
-        for (j = 0; j < nmultiv; j++) {
-          if (mvalues[icell][i][j] < 0) mvalues[icell][i][j] = 0.0;
-          else if (mvalues[icell][i][j] > 255.0) mvalues[icell][i][j] = 255.0;
-        }
-      } else {
+      if (bound) {
         if (cvalues[icell][i] < 0) cvalues[icell][i] = 0.0;
         else if (cvalues[icell][i] > 255.0) cvalues[icell][i] = 255.0;
       }
@@ -390,6 +339,7 @@ void FixAblate::pass_remain(int overflow)
         } // end jy
       } // end jz
 
+      // vertices double counted
       if (dim == 2) nvertices *= 0.5;
       else nvertices *= 0.25;
 
@@ -398,7 +348,7 @@ void FixAblate::pass_remain(int overflow)
 
       /*---------------------------------------------------------------*/
 
-      // avoids multi-counting
+      // avoids multi-counting in sync
       double fac;
       if (dim == 2) fac = 0.5;
       else fac = 0.25;

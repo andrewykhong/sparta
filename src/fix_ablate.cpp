@@ -491,26 +491,26 @@ void FixAblate::end_of_step()
   //cellloss = 0;
   if (multi_dec_flag) {
     if (sphereflag) {
+      if (multi_val_flag) error->one(FLERR,"Not supported");
       decrement_sphere();
-      sync_sphere(1);
 
-      /*if (!multi_val_flag) {
+      if (carryflag) {
         Nout = sync_sphere(0);
         MPI_Allreduce(&Nout,&allNout,1,MPI_INT,MPI_SUM,world);
 
         while (allNout) {
-          // first handle values > 255
-          count_interface();
-          pass_remain(1);
-          sync_sphere(0);
-
-          // now handle negative values
+          // first handle negative values
           count_interface();
           pass_remain(0);
+          sync_sphere(0);
+
+          // now handle values > 255
+          count_interface();
+          pass_remain(1);
           Nout = sync_sphere(0);
           MPI_Allreduce(&Nout,&allNout,1,MPI_INT,MPI_SUM,world);
         }
-      } else sync_sphere(1);*/
+      } else sync_sphere(1);
 
     } else {
       if (multi_val_flag) {
@@ -1887,6 +1887,7 @@ void FixAblate::process_args(int narg, char **arg)
   mindist = 0.0;
   multi_dec_flag = 0;
   minmaxflag = 0;
+  carryflag = 0;
 
   int iarg = 0;
   while (iarg < narg) {
@@ -1907,6 +1908,12 @@ void FixAblate::process_args(int narg, char **arg)
       if (iarg+2 > narg) error->all(FLERR,"Invalid read_isurf command");
       if (strcmp(arg[iarg+1],"no") == 0) minmaxflag = 0;
       else if (strcmp(arg[iarg+1],"yes") == 0) minmaxflag = 1;
+      else error->all(FLERR,"Illegal fix_ablate command");
+      iarg += 2;
+    } else if (strcmp(arg[iarg],"carry") == 0) {
+      if (iarg+2 > narg) error->all(FLERR,"Invalid read_isurf command");
+      if (strcmp(arg[iarg+1],"no") == 0) carryflag = 0;
+      else if (strcmp(arg[iarg+1],"yes") == 0) carryflag = 1;
       else error->all(FLERR,"Illegal fix_ablate command");
       iarg += 2;
     } else error->all(FLERR,"Illegal fix_ablate command");

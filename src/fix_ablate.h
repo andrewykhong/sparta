@@ -114,6 +114,8 @@ class FixAblate : public Fix {
   double closs;
   double cellloss; // total number of cells with solid
 
+  int carryflag;
+
   class MarchingSquares *ms;
   class MarchingCubes *mc;
   class MarchingCircles *mci;
