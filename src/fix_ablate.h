@@ -149,6 +149,7 @@ class FixAblate : public Fix {
   int sync_sphere(int);
   void count_interface();
   void pass_remain(int);
+  void pass_remain_multi(int);
 
   void mark_corners_2d(int);
   void mark_corners_3d(int);

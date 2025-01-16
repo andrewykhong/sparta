@@ -491,24 +491,27 @@ void FixAblate::end_of_step()
   //cellloss = 0;
   if (multi_dec_flag) {
     if (sphereflag) {
-      //if (multi_val_flag) error->one(FLERR,"Not supported");
       decrement_sphere();
 
       if (carryflag) {
         Nout = sync_sphere(0);
         MPI_Allreduce(&Nout,&allNout,1,MPI_INT,MPI_SUM,world);
 
-        while (allNout) {
-          // first handle negative values
-          count_interface();
-          pass_remain(0);
+        if (allNout) {
+          if (multi_val_flag) pass_remain_multi(1);
+          else {
+            count_interface();
+            pass_remain(1);
+          }
           sync_sphere(0);
 
-          // now handle values > 255
-          count_interface();
-          pass_remain(1);
-          Nout = sync_sphere(0);
-          MPI_Allreduce(&Nout,&allNout,1,MPI_INT,MPI_SUM,world);
+          if (multi_val_flag) pass_remain_multi(0);
+          else {
+            count_interface();
+            pass_remain(0);
+          }
+          Nout = sync_sphere(1);
+          //MPI_Allreduce(&Nout,&allNout,1,MPI_INT,MPI_SUM,world);
         }
       } else sync_sphere(1);
 
@@ -554,8 +557,10 @@ void FixAblate::end_of_step()
   // sync shared corner point values
   // adjust individual corner point values too close to threshold
 
-  if (multi_val_flag) epsilon_adjust_multiv();
-  else if (!sphereflag) epsilon_adjust();
+  if (!sphereflag) {
+    if (multi_val_flag) epsilon_adjust_multiv();
+    else epsilon_adjust();
+  }
 
   // re-create implicit surfs
 

@@ -264,8 +264,9 @@ void ComputeReactISurfGrid::surf_tally(int isurf, int icell, int reaction,
     if (del > 0) del = 1;
     else if (del < 0) del = -1;
     else del = 0;
-  // any reaction leads to loss of one
   }
+
+  // any reaction leads to loss of one
   else if (outtype == REDUCE) del = -1;
   else if (outtype == ADD) del = 1;
 

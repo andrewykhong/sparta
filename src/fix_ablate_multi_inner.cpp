@@ -71,10 +71,14 @@ void FixAblate::decrement_sphere()
     if (!(cinfo[icell].mask & groupbit)) continue;
     if (cells[icell].nsplit <= 0) continue;
 
-    for (i = 0; i < ncorner; i++) cdelta[icell][i] = 0.0;
+    for (i = 0; i < ncorner; i++) {
+      if (multi_val_flag) {
+        for (j = 0; j < nmultiv; j++) mdelta[icell][i][j] = 0.0;
+      } else cdelta[icell][i] = 0.0;
+    }
 
-    nsurf = cells[icell].nsurf;
-    if (!nsurf) continue; // if no surfs, no interface points
+    total = celldelta[icell];
+    if (total == 0.0) continue;
 
     // find which corners in the cell are inside, outside, and interface
 
@@ -92,51 +96,81 @@ void FixAblate::decrement_sphere()
 
       ninter = 0;
       for (k = 0; k < dim; k++)
-        if (refcorners[neighbors[k]] != 1) ninter++;
+        if (refcorners[neighbors[k]] == 0) ninter++;
 
       if (ninter == 0) continue;
       iupdate[i] = 1;
       Nin++;
     }
 
-    // perout is how much to decrement at each interface point
+    if (Nin == 0) error->one(FLERR,"No points found?");
 
-    total = celldelta[icell];
-    if (total == 0.0) continue;
+    // perout is how much to decrement at each interface point
     perout = total/Nin;
 
     for (i = 0; i < ncorner; i++) {
-      neighbors = corner_neighbor[i];
-
       if (iupdate[i]) {
-        if (carryflag) cdelta[icell][i] += perout;
-        else {
+/*-------------------------------------------------------------------*/
+        if (multi_val_flag) {
+          if (total < 0) {
+            for (j = 0; j < nmultiv; j++) mdelta[icell][i][j] += perout;
+          } else if (total > 0) {
+            if (carryflag) {
+              for (j = 0; j < nmultiv; j++) mdelta[icell][i][j] += perout;
+            } else {
+              double dc;
+              for (j = 0; j < nmultiv; j++) {
+                dc = 255.0-mvalues[icell][i][j];
+                if (perout <= dc) mdelta[icell][i][j] += perout;
+                else mdelta[icell][i][j] += dc;
+              }
+
+              // for readability, handle overflow here
+              for (k = 0; k < dim; k++) {
+                dc = 255.0-mvalues[icell][i][k];
+                if (perout > dc) {
+                  jc = neighbors[k];              
+                  if (refcorners[jc] == 0) {
+                    for (l = 0; l < nmultiv; l++)
+                      mdelta[icell][jc][l] += (perout-dc)/nmultiv;
+                  }
+                } // check perout
+              } // end j - dim
+            } // if carryflag
+          }// total sign
+/*-------------------------------------------------------------------*/
+        } else {
           if (total < 0) {
             cdelta[icell][i] += perout;
           } else if (total > 0) {
-            double dc = 255.0-cvalues[icell][i];
-            if (perout <= dc) cdelta[icell][i] += perout;
+            if (carryflag) cdelta[icell][i] += perout;
+            // need below otherwise will stop growing
             else {
-              cdelta[icell][i] += dc;
+              if (cvalues[icell][i]+perout <= 255.0) {
+                cdelta[icell][i] += perout;
+              } else {
+                double dc = 255.0-cvalues[icell][i];
+                // find neighbors which have "space"
+                neighbors = corner_neighbor[i];
+                ninter = 0;
+                for (k = 0; k < dim; k++) {
+                  jc = neighbors[k];              
+                  if (refcorners[jc] == 0) ninter++;
+                }
 
-              // find neighbors which have "space"
-              ninter = 0;
-              for (k = 0; k < dim; k++) {
-                jc = neighbors[k];              
-                if (refcorners[jc] == 0) ninter++;
+                // pass overflow to neighbors
+                for (k = 0; k < dim; k++) {
+                  jc = neighbors[k];              
+                  if (refcorners[jc] == 0) cdelta[icell][jc] += (perout-dc)/ninter;
+                }
               }
-
-              // pass overflow to neighbors
-              for (k = 0; k < dim; k++) {
-                jc = neighbors[k];              
-                if (refcorners[jc] == 0) cdelta[icell][jc] += perout/ninter;
-              }
-            }
-          }
-        }
+            } // if carryflag
+          } // total sign
+        } // if multi
+/*-------------------------------------------------------------------*/
       } // if update
-
     } // end corners
+
   } // end cells
 }
 
@@ -148,7 +182,7 @@ int FixAblate::sync_sphere(int bound)
 {
   int i,j,ix,iy,iz,jx,jy,jz,ixfirst,iyfirst,izfirst,jcorner;
   int icell,jcell;
-  double total;
+  double total[6];
 
   int anyout = 0;
 
@@ -172,7 +206,8 @@ int FixAblate::sync_sphere(int bound)
       if (dim == 2) izfirst = 0;
       else izfirst = (i / 4) - 1;
 
-      total = 0.0;
+      total[0] = 0.0;
+      total[1] = total[2] = total[3] = total[4] = total[5] = 0.0;
       jcorner = ncorner;
 
       for (jz = izfirst; jz <= izfirst+1; jz++) {
@@ -186,24 +221,100 @@ int FixAblate::sync_sphere(int bound)
 
             jcell = walk_to_neigh(icell,jx,jy,jz);
 
-            if (jcell < nglocal) total += cdelta[jcell][jcorner];
-            else total += cdelta_ghost[jcell-nglocal][jcorner];
+            if (multi_val_flag) {
+              for (j = 0; j < nmultiv; j++) {
+                if (jcell < nglocal) total[j] += mdelta[jcell][jcorner][j];
+                else total[j] += mdelta_ghost[jcell-nglocal][jcorner][j];
+              }
+            } else {
+              if (jcell < nglocal) total[0] += cdelta[jcell][jcorner];
+              else total[0] += cdelta_ghost[jcell-nglocal][jcorner];
+            }
 
           } // end jx
         } // end jy
       } // end jz
 
-      cvalues[icell][i] += total;
-      if (cvalues[icell][i] < 0) anyout = 1;
-      else if (cvalues[icell][i] > 255.0) anyout = 1;
+      if (multi_val_flag) {
+        for (j = 0; j < nmultiv; j++) {
+          mvalues[icell][i][j] += total[j];
+          if (mvalues[icell][i][j] < 0) anyout = 1;
+          else if (mvalues[icell][i][j] > 255.0) anyout = 1;
+        }
 
-      // move epsilon_adjust here
-      if (bound) {
-        if (cvalues[icell][i] <= thresh) {
-          if (total <= 0.0) cvalues[icell][i] = 0.0;
-          else cvalues[icell][i] = thresh+EPSILON;
-        } else cvalues[icell][i] = MIN(cvalues[icell][i],255.0);
-      }
+        if (bound) {
+          // check if any multvals are negative
+          // compute average movement in cell from total
+          double avgtotal = 0;
+          for (j = 0; j < nmultiv; j++) avgtotal += total[j];
+
+          // move epsilon_adjust here
+          if (mvalues[icell][i][j] <= thresh) {
+            if (avgtotal <= 0.0) mvalues[icell][i][j] = 0.0;
+            else mvalues[icell][i][j] = thresh+EPSILON;
+          } else if (mvalues[icell][i][j] > 255.0) mvalues[icell][i][j] = 255.0;
+
+          // additional consistency step
+          int allin;
+          if (mvalues[icell][i][0] >= thresh+EPSILON) allin = 1;
+          else allin = 0;
+
+          int mixflag = 0;
+          for (int j = 1; j < nmultiv; j++) {
+            if (mvalues[icell][i][j] < thresh+EPSILON && allin) mixflag = 1; // out
+            if (mvalues[icell][i][j] >= thresh+EPSILON && !allin) mixflag = 1; // in
+          }
+
+          // if mixflag = 1, inner indices in disagreement in terms of side
+          if (mixflag || !allin) {
+            for (int j = 0; j < nmultiv; j++) {
+              if (avgtotal <= 0.0) mvalues[icell][i][j] = 0.0;
+              else mvalues[icell][i][j] = thresh+EPSILON;
+            }
+          }
+
+        // need to check for negative multivalues
+        } else {
+          int neg = 0;
+          for (j = 0; j < nmultiv; j++)
+            if (mvalues[icell][i][j] < 0.0) neg = 1;
+
+          // for consistency, need to set all positive values to zero
+          // also need to flip afterwards to correctly direct decrement
+          if (neg) {
+            // erase positive values
+            for (j = 0; j < nmultiv; j++)
+              if (mvalues[icell][i][j] > 0.0) mvalues[icell][i][j] = 0.0;
+
+            double tmp_mval[nmultiv];
+            memcpy(tmp_mval,mvalues[icell][i],nmultiv*sizeof(double));
+
+            // swap values between inner neighbor pairs
+            for (j = 0; j < nmultiv; j++) {
+               if (j == 0) mvalues[icell][i][1] = tmp_mval[j];
+               else if (j == 1) mvalues[icell][i][0] = tmp_mval[j];
+               else if (j == 2) mvalues[icell][i][3] = tmp_mval[j];
+               else if (j == 3) mvalues[icell][i][2] = tmp_mval[j];
+               else if (j == 4) mvalues[icell][i][5] = tmp_mval[j];
+               else if (j == 5) mvalues[icell][i][4] = tmp_mval[j];
+            }
+          }
+        }
+
+      // single values
+      } else {
+        cvalues[icell][i] += total[0];
+        if (cvalues[icell][i] < 0) anyout = 1;
+        else if (cvalues[icell][i] > 255.0) anyout = 1;
+
+        // move epsilon_adjust here
+        if (bound) {
+          if (cvalues[icell][i] <= thresh) {
+            if (total[0] <= 0.0) cvalues[icell][i] = 0.0;
+            else cvalues[icell][i] = thresh+EPSILON;
+          } else if (cvalues[icell][i] > 255.0) cvalues[icell][i] = 255.0;
+        }
+      } // if multi
 
     } // end corners
   } // end cells
@@ -243,7 +354,7 @@ void FixAblate::count_interface()
     if (dim == 2) mark_corners_2d(icell);
     else mark_corners_3d(icell);
 
-    // count number of vertices around negative values
+    // count number of interface points around corner point
 
     for (i = 0; i < ncorner; i++) {
       neighbors = corner_neighbor[i];
@@ -252,7 +363,7 @@ void FixAblate::count_interface()
           if (refcorners[neighbors[k]] == 1) nvert[icell][i] += 1.0;
       } else if (cvalues[icell][i] > 255.0) {
         for (k = 0; k < dim; k++)
-          if (refcorners[neighbors[k]] == 0) nvert[icell][i] += 1.0;
+          if (refcorners[neighbors[k]] != 1) nvert[icell][i] += 1.0;
       }
     } // end corners
 
@@ -297,7 +408,8 @@ void FixAblate::pass_remain(int overflow)
 
     for (i = 0; i < ncorner; i++) {
 
-      if (cvalues[icell][i] >= 0.0 && cvalues[icell][i] <= 255.0) continue;
+      if (cvalues[icell][i] >= 0.0 && !overflow) continue;
+      if (cvalues[icell][i] <= 255.0 && overflow) continue;
 
       /*---------------------------------------------------------------*/
       // sync operation to find total number of interface points 
@@ -345,30 +457,99 @@ void FixAblate::pass_remain(int overflow)
       if (dim == 2) fac = 0.5;
       else fac = 0.25;
 
-      if (nvertices < 1) fac = 0.0;
+      // ignore rare case
+      if (nvertices == 0) {
+        printf("zero vertices\n");
+        if (cvalues[icell][i] < 0.0) cvalues[icell][i] = 0.0;
+        else if (cvalues[icell][i] > 255.0) cvalues[icell][i] = 255.0;
+      } else {
+        // pass over or negative values to neighboring interface points
+        neighbors = corner_neighbor[i];
+        for (j = 0; j < dim; j++) { // over neighbors
+          i_cneigh = neighbors[j];
+          // decrement neighbor inside interface
+          if (!overflow) {
+            if(refcorners[i_cneigh] == 1)
+              cdelta[icell][i_cneigh] += cvalues[icell][i]/nvertices*fac;
+          // increase neighbor
+          } else if (overflow) {
+            if (refcorners[i_cneigh] != 1)
+               cdelta[icell][i_cneigh] += (cvalues[icell][i]-255.0)/nvertices*fac;
+          } else error->one(FLERR,"Should not be here!");
+        } // end dim
 
-      // pass over or negative values to neighboring interface points
-      neighbors = corner_neighbor[i];
-      for (j = 0; j < dim; j++) {
-        i_cneigh = neighbors[j];
-        // decrement neighbor inside interface
-        if (cvalues[icell][i] < 0.0 && !overflow) {
-          if(refcorners[i_cneigh] == 1)
-            cdelta[icell][i_cneigh] += cvalues[icell][i]/nvertices*fac;
-          // passed so zero
-          cvalues[icell][i] = 0.0;
-        // increase neighbor
-        } else if (cvalues[icell][i] > 255.0 && overflow) {
-          if (refcorners[i_cneigh] == 0)
-             cdelta[icell][i_cneigh] += (255.0-cvalues[icell][i])/nvertices*fac;
-          // passed so cap
-          cvalues[icell][i] = 255.0;
-        } // don't need else here since it'll confuse algorithm
-      } // end dim
+        // passed so now bound
+        if (cvalues[icell][i] < 0.0) cvalues[icell][i] = 0.0;
+        else if (cvalues[icell][i] > 255.0) cvalues[icell][i] = 255.0;
+      }
 
     } // end corner
   } // end cells
 }
+
+/* ----------------------------------------------------------------------
+   Part 2 of 2 for handling out of bound values
+------------------------------------------------------------------------- */
+
+void FixAblate::pass_remain_multi(int overflow)
+{
+  Grid::ChildCell *cells = grid->cells;
+  Grid::ChildInfo *cinfo = grid->cinfo;
+
+  int i,j,k,l,ix,iy,iz,jx,jy,jz,ixfirst,iyfirst,izfirst,jcorner;
+  int icell,jcell;
+  int *neighbors,i_cneigh;
+  int *ineighbors,i_in,i_oin;
+  double total_remain,nvertices;
+
+  // avoids multi-counting in sync_sphere
+  double fac;
+  if (dim == 2) fac = 0.5;
+  else fac = 0.25;
+
+  for (icell = 0; icell < nglocal; icell++) {
+    if (!(cinfo[icell].mask & groupbit)) continue;
+    if (cells[icell].nsplit <= 0) continue;
+
+    ix = ixyz[icell][0];
+    iy = ixyz[icell][1];
+    iz = ixyz[icell][2];
+
+    for (i = 0; i < ncorner; i++)
+      for (j = 0; j < nmultiv; j++) mdelta[icell][i][j] = 0.0;
+
+    // finds which corner points are inside, interface, and outside
+    // uses a lookup table. For 3D, this is decrement_lookup_table.h
+
+    if (dim == 2) mark_corners_2d(icell);
+    else mark_corners_3d(icell);
+
+    for (i = 0; i < ncorner; i++) {
+      neighbors = corner_neighbor[i];
+      ineighbors = inner_neighbor[i];
+      for (j = 0; j < dim; j++) { // over multivals in cell
+        i_cneigh = neighbors[j];
+        i_in = ineighbors[j];
+        double mval = mvalues[icell][i][i_in];
+        if (!overflow && mval < 0.0) {
+          if(refcorners[i_cneigh] == 1) {
+            for (k = 0; k < nmultiv; k++)
+              mdelta[icell][i_cneigh][k] += mval/nmultiv*fac;
+          }
+          mvalues[icell][i][i_in] = 0.0;
+        } else if (overflow && mval > 255.0) {
+          if (refcorners[i_cneigh] != 1) {
+            for (k = 0; k < nmultiv; k++)
+              mdelta[icell][i_cneigh][k] += (mval-255.0)/nmultiv*fac;
+          }
+          mvalues[icell][i][i_in] = 255.0;
+        }
+      } // end dim
+    } // end corner
+
+  } // end cells
+}
+
 
 /* ----------------------------------------------------------------------
    Part 1 of 2 for multi-point decrement. Determine total amount to
