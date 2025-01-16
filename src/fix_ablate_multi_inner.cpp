@@ -103,7 +103,16 @@ void FixAblate::decrement_sphere()
       Nin++;
     }
 
-    if (Nin == 0) error->one(FLERR,"No points found?");
+    //if (Nin == 0) error->one(FLERR,"No points found?");
+    // should never have to be used
+    if (Nin == 0) {
+      for (i = 0; i < ncorner; i++) {
+        if (multi_val_flag) {
+          for (j = 0; j < nmultiv; j++) mvalues[icell][i][j] = 0.0;
+        } else cvalues[icell][i] = 0.0;
+      }
+    }
+        
 
     // perout is how much to decrement at each interface point
     perout = total/Nin;
@@ -445,10 +454,8 @@ void FixAblate::pass_remain(int overflow)
       if (dim == 2) nvertices *= 0.5;
       else nvertices *= 0.25;
 
-      if (nvertices > 2*dim) {
-        printf("Too many vertices found: %i\n",nvertices);
+      if (nvertices > 2*dim)
         error->one(FLERR,"Vertices counted wrong");
-      }
 
       /*---------------------------------------------------------------*/
 
