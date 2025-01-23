@@ -448,9 +448,27 @@ void FixSolid::update_particle()
 
         } else {
           mp_new = mp;
+          // joules -> kg x m^2 / s^2
+          // specific heat: J/(kg K) -> kg x m^2 / (s^2 x kg x K)
+          // ... -> m^2 / (s^2 x K)
+          // K = K + (kg x m^2/s^3) / (m^2 / (s^2 x K)) / kg * s
+          // K = K + K x (1/s^3) / (1/(s^2)) * s
+          // K = K + K
           Tp_new = Tp + Ein/csp/mp*update->dt*nevery;
           Rp_new = Rp;
         } // end phase change check
+
+        /*if (fabs(Ein) > 0) {
+          printf("Ein: %4.3e\n", Ein);
+          printf("mp: %4.3e -> %4.3e\n", mp, mp_new);
+          printf("Tp: %4.3e -> %4.3e\n", Tp, Tp_new);
+          printf("Rp: %4.3e -> %4.3e\n", Rp, Rp_new);
+          error->one(FLERR,"ck");
+        }*/
+
+        // stpre new particle temp
+        solid_array[ip][1] = Rp_new;
+        solid_array[ip][2] = Tp_new;
 
         // record change in momentum and kinetic energy
         for (int d = 0; d < dim; d++) {
@@ -458,7 +476,7 @@ void FixSolid::update_particle()
           dj[d] -= mp*particles[ip].v[d];
           dke -= 0.5*mp*(particles[ip].v[d]*particles[ip].v[d]);
           // update
-          particles[ip].v[d] += Fd[d]*update->dt*nevery;
+          particles[ip].v[d] += Fd[d]/mp*update->dt*nevery;
           // new
           dj[d] += mp_new*particles[ip].v[d];
           dke += 0.5*mp_new*(particles[ip].v[d]*particles[ip].v[d]);
