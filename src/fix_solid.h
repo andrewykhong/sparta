@@ -53,11 +53,12 @@ class FixSolid : public Fix {
 
   FILE *fp; // file pointer for solid properties
 
-  char **ids;                // ID/name of compute,fix,variable to access
-  int *argindex;             // which column from compute or fix to access
-  int *value2index;          // index of compute,fix,variable
-  int *post_process;         // 1 if need compute->post_process() on value
-  double **Sn;               // custom particle surf
+  char **ids;        // ID/name of compute,fix,variable to access
+  int *argindex;     // which column from compute or fix to access
+  int *value2index;  // index of compute,fix,variable
+  int *post_process; // 1 if need compute->post_process() on value
+  double **Sn;       // custom particle surf
+  int merge_flag;    // reduce custom surfaces
 
   // index for custom per-particle solid propeties
   // custom array for solid params : radius, mass, specific heat, temperature
@@ -108,16 +109,17 @@ class FixSolid : public Fix {
   void move_langevin();
   void reset_velocities(int);
 
-  void Fsphere(const double *, const double, const double, double *, double);
-  void Fdisc(const double *, const double, const double, const double, const double, double *, double);
-  void Fcyl(const double *, const double, const double, const double, const double, double *, double);
-  void Fcustom(const double *, const double, const double, double *, double);
+  void Fsphere(const double *, const double, const double, double *, double&);
+  void Fdisc(const double *, const double, const double, const double, const double, double *, double&);
+  void Fcyl(const double *, const double, const double, const double, const double, double *, double&);
+  void Fcustom(const double *, const double, const double, double *, double&);
 
   // misc functions
 
   void reallocate();
   void read_solid();
-  void read_surf(FILE *f, double, double, double, double);
+  void read_surf_stl(FILE *f);
+  void read_surf_shape(FILE *f);
   int wordcount(char *, char **);
 
   // random num

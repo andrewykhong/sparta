@@ -43,7 +43,6 @@ enum{SPHERE,DISC,CYLINDER,CUSTOM};
 enum{SIZE,MASS,TEMP,FORCEX,FORCEY,FORCEZ,HEAT};
 enum{PZERO,AVERAGE};
 
-
 #define DELTADELETE 1024
 #define MAXLINE 1024
 #define SMALLANGLE 1E-10
@@ -61,6 +60,8 @@ FixSolid::FixSolid(SPARTA *sparta, int narg, char **arg) :
   nsample = 0; // number of samples
   dim = domain->dimension;
   id = NULL; // solid particle list
+
+  maxdelete = 0.0;
   dellist = NULL; // particles to delete
 
   // for storing per-grid solid-particle properties
@@ -96,6 +97,7 @@ FixSolid::FixSolid(SPARTA *sparta, int narg, char **arg) :
   uxp0 = uyp0 = uzp0 = 0.0;
   conserve_flag = 0;
   reset_flag = 0;
+  merge_flag = 0;
 
   int iarg = 4;
   while (iarg < narg) {
@@ -138,15 +140,12 @@ FixSolid::FixSolid(SPARTA *sparta, int narg, char **arg) :
       iarg++;
     } else if (strcmp(arg[iarg],"surf") == 0) { 
       FILE *fsurf = fopen(arg[iarg+1],"r");
-      // axis of rotation
-      double ex = atof(arg[iarg+2]);
-      double ey = atof(arg[iarg+3]);
-      double ez = atof(arg[iarg+4]);
-      // angle of rotation (in deg)
-      double rtheta = atof(arg[iarg+5]);
       if (!fsurf) error->one(FLERR,"Particle surface file not found");
-      read_surf(fsurf,ex,ey,ez,rtheta);
-      iarg += 6;
+      int type;
+      if (strcmp(arg[iarg+2],"stl") == 0) read_surf_stl(fsurf);
+      else if (strcmp(arg[iarg+2],"shape") == 0) read_surf_shape(fsurf);
+      else error->all(FLERR,"Illegal option for custom surf");
+      iarg += 3;
     } else error->all(FLERR,"Invalid fix solid command");
   }
 
@@ -296,16 +295,15 @@ void FixSolid::end_of_step()
   // update particles velocitis (and position if langevin)
 
   ndelete = 0;
-  if (move_type == EULER && !reset_flag) update_particle();
+  if (move_type == EULER) update_particle();
+
+  // For debugging
+  if (reset_flag) reset_velocities(0);
 
   // delete solid particles with no mass
 
   if (ndelete) particle->compress_reactions(ndelete,dellist);
 
-  // For debugging
-  if (reset_flag) reset_velocities(0);
-
-  return;
 }
 
 /* ---------------------------------------------------------------------- */
@@ -358,8 +356,8 @@ void FixSolid::update_particle()
 
     // manually check conservation
 
-    dmom_gas[0] = dmom_gas[1] = dmom_gas[2] = dE_gas = 0.0;
-    dmom_part[0] = dmom_part[1] = dmom_part[2] = dE_part = 0.0;
+    //dmom_gas[0] = dmom_gas[1] = dmom_gas[2] = dE_gas = 0.0;
+    //dmom_part[0] = dmom_part[1] = dmom_part[2] = dE_part = 0.0;
 
     // update only solid particles
 
@@ -372,7 +370,6 @@ void FixSolid::update_particle()
     while (ip >= 0) {
       isp = particles[ip].ispecies;
       if (isp == solid_species) {
-        nsolid++;
         Rp = solid_array[ip][1];
         Tp = solid_array[ip][2];
         phi_s = solid_array[ip][3];
@@ -455,19 +452,6 @@ void FixSolid::update_particle()
           Rp_new = Rp;
         } // end phase change check
 
-        // store new particle temp
-        if (!reset_flag) {
-          solid_array[ip][1] = Rp_new;
-          solid_array[ip][2] = Tp_new;
-          //solid_array[ip][3] = phi_s;
-        } else {
-          Rp_new = Rp;
-          Tp_new = Tp;
-          mp_new = mp;
-        }
-
-        Fd[0] = 1;
-
         // record change in momentum and kinetic energy
         for (int d = 0; d < dim; d++) {
           // old
@@ -498,8 +482,15 @@ void FixSolid::update_particle()
           array_grid[icell][4] += solid_force[ip][1];
           array_grid[icell][5] += solid_force[ip][2];
           array_grid[icell][6] += solid_force[ip][3];
+          nsolid++;
         // delete particle
-        } else dellist[ndelete++] = ip;
+        } else {
+          if (ndelete == maxdelete) {
+            maxdelete += DELTADELETE;
+            memory->grow(dellist,maxdelete,"fix/solid:dellist");
+          }
+          dellist[ndelete++] = ip;
+        }
       
       // record total gas mass and momentum
       } else if (conserve_flag) {
@@ -535,17 +526,10 @@ void FixSolid::update_particle()
 
       double dE = -0.5*mass_g*(dU_g[0]*dU_g[0]+dU_g[1]*dU_g[1]+dU_g[2]*dU_g[2])-(dke+dT);
 
-      //printf("dU_g: %4.3e, %4.3e, %4.3e\n", dU_g[0], dU_g[1], dU_g[2]);
-      //printf("dE: %4.3e; dke: %4.3e; dT: %4.3e\n", dE, dke, dT);
-      //printf("Eth_g: %4.3e\n", Eth_g);
       Eth_g -= 0.5*mass_g*(U_g[0]*U_g[0]+U_g[1]*U_g[1]+U_g[2]*U_g[2]);
-      //printf("Eth_g - U2: %4.3e\n", Eth_g);
       double dEth  = dE * (3.0*(np-nsolid))/(3.0*(np-nsolid)+total_rdof);
-      //printf("dE: %4.3e; %4.3e; Eg: %4.3e\n",  dE, dEth, Eth_g);
       double dErot = dE - dEth;
       double phi = sqrt( (Eth_g+dE)/Eth_g );
-      //printf("phi: %4.3e; dU: %4.3e, %4.3e, %4.3e\n", phi, dU_g[0], dU_g[1], dU_g[2]);
-      //printf("total rot: %4.3e; %4.3e\n", total_rdof, Erot_g);
 
       //if (dE<0) error->one(FLERR,"negative energy change");
 
@@ -555,12 +539,9 @@ void FixSolid::update_particle()
         isp = particles[ip].ispecies;
         if (isp != solid_species) {
           for (int d = 0; d < dim; d++) {
-            //printf("ip: %i[%i] - %4.3e\n", particles[ip].v[d]);
             particles[ip].v[d] =
               (particles[ip].v[d]-U_g[d])*phi + (U_g[d]+dU_g[d]);
-            //printf("ip: %i[%i] - %4.3e\n", particles[ip].v[d]);
           }
-          // buggy
           //particles[ip].erot *= (dErot+Erot_g)/Erot_g;
         }
         ip = next[ip];
@@ -568,12 +549,13 @@ void FixSolid::update_particle()
     } // end conserve
 
     // update per-grid forces for outputting
-    if (nsolid > 0)
+    if (nsolid > 0) {
       for (i = 0; i < size_per_grid_cols; i++)
         array_grid[icell][i] /= nsolid;
-    else 
+    } else { 
       for (i = 0; i < size_per_grid_cols; i++)
         array_grid[icell][i] = 0.0;
+    }
 
   } // end cells
 
@@ -655,26 +637,9 @@ double FixSolid::get_particle_property(int which, int ip)
    called by init() and whenever grid changes
 ------------------------------------------------------------------------- */
 
-void FixSolid::read_surf(FILE *fin, double ex, double ey, double ez, double rtheta)
+void FixSolid::read_surf_stl(FILE *fin)
 {
   
-  // normalize unit vector
-  double emag = sqrt(ex*ex+ey*ey+ez*ez);
-  double e[3];
-  if (emag == 0.0) {
-    e[0] = 1.0;
-    e[1] = e[2] = 0.0;
-    rtheta = 0.0;
-  } else {
-    e[0] /= emag;
-    e[1] /= emag;
-    e[2] /= emag;
-  }
-
-  // convert to radians
-  double mypi = 3.1415926535;
-  rtheta *= mypi/180.0;
-
   // read file line by line
   // skip blank lines or comment lines starting with '#'
   // all other lines must have NWORDS
@@ -784,24 +749,13 @@ void FixSolid::read_surf(FILE *fin, double ex, double ey, double ez, double rthe
     if(abs(norm[2]) <= SMALLANGLE) norm[2] = 0.0;
     //printf("in norm: %4.3e, %4.3e, %4.3e\n", norm[0], norm[1], norm[2]);
 
-    // rotate using Rodrigues axis rotation 
-    if (rtheta) {
-      double en_cross[3]; // cross product between rotation axis and norm
-      MathExtra::cross3(e,norm,en_cross);
-      double en_dot = MathExtra::dot3(e,norm); // dot product between them
-      for (int d = 0; d < 3; d++)
-        norm[d] = norm[d]*cos(rtheta)+en_cross[d]*sin(rtheta) +
-                  e[d]*en_dot*(1-cos(rtheta));
-      error->one(FLERR,"rotat");
-    }
-
     // convert to spherical coordinates
     double theta = atan(norm[1]/norm[0]);
     if (theta != theta) theta = 0.0; // x- and y- component are zero
-    if (norm[0] < 0 && norm[1] >= 0) theta += mypi;
-    else if (norm[0] < 0 && norm[1] < 0) theta -= mypi;
-    else if (abs(norm[0]) == 0.0 && norm[1] > 0) theta = mypi*0.5;
-    else if (abs(norm[0]) == 0.0 && norm[1] < 0) theta = -mypi*0.5;
+    if (norm[0] < 0 && norm[1] >= 0) theta += MY_PI;
+    else if (norm[0] < 0 && norm[1] < 0) theta -= MY_PI;
+    else if (abs(norm[0]) == 0.0 && norm[1] > 0) theta = MY_PI*0.5;
+    else if (abs(norm[0]) == 0.0 && norm[1] < 0) theta = -MY_PI*0.5;
 
     double phi = acos(norm[2]);
 
@@ -812,21 +766,6 @@ void FixSolid::read_surf(FILE *fin, double ex, double ey, double ez, double rthe
   
     double s = 0.5*(l1+l2+l3);
     double area = sqrt(s*(s-l1)*(s-l2)*(s-l3));
-
-    // make sure norm is consistent
-    //new_norm[0] = cos(theta)*sin(phi);
-    //new_norm[1] = sin(theta)*sin(phi);
-    //new_norm[2] = cos(phi);
-    //if(abs(new_norm[0]) <= SMALLANGLE) new_norm[0] = 0.0;
-    //if(abs(new_norm[1]) <= SMALLANGLE) new_norm[1] = 0.0;
-    //if(abs(new_norm[2]) <= SMALLANGLE) new_norm[2] = 0.0;
-
-    // if product sign negative, need to flip
-    //if(norm[0]*new_norm[0] < 0) error->one(FLERR,"Normal doesn't match");
-    //if(norm[1]*new_norm[1] < 0) error->one(FLERR,"Normal doesn't match");
-    //if(norm[2]*new_norm[2] < 0) error->one(FLERR,"Normal doesn't match");
-    //printf("out norm: %4.3e, %4.3e, %4.3e\n",
-    //  cos(theta)*sin(phi),sin(theta)*sin(phi),cos(phi));
 
     // store
     Sn[i][0] = theta;
@@ -848,6 +787,65 @@ void FixSolid::read_surf(FILE *fin, double ex, double ey, double ez, double rthe
 
   memory->destroy(tmp_pts);
   memory->destroy(tmp_tris);
+  delete [] words;
+
+  fclose(fp);
+}
+
+/* ----------------------------------------------------------------------
+   reallocate arrays if nglocal has changed
+   called by init() and whenever grid changes
+------------------------------------------------------------------------- */
+
+void FixSolid::read_surf_shape(FILE *fin)
+{
+  
+  // read file line by line
+  // skip blank lines or comment lines starting with '#'
+  // all other lines must have NWORDS
+
+  int MAXWORDS = 5;
+  char **words = new char*[MAXWORDS];
+  char line[MAXLINE];
+
+  int npts, ntris;
+  int i = 0;
+  double **tmp_pts;
+  int **tmp_tris;
+
+  // flag for header
+  int header = 0;
+
+  // read file
+  tmp_pts = NULL;
+  tmp_tris = NULL;
+  while (fgets(line,MAXLINE,fin)) {
+    int pre = strspn(line," \t\n\r");
+    if (pre == strlen(line) || line[pre] == '#') continue;
+
+    // check line length
+    int nwords = wordcount(line,words);
+
+    //printf("%s %s\n", words[0], words[1]);
+
+    // read number of points
+    if (header == 0) {
+      if (strcmp(words[1],"surfs") != 0) continue;
+        //error->all(FLERR,"Fix solid: First line expected to be number of points");
+      nsurfs = atoi(words[0]);
+
+      Sn = NULL;
+      memory->destroy(Sn);
+      memory->create(Sn,nsurfs,3,"fix/solid:Sn");
+      header++;
+    } else {
+      Sn[i][0] = atof(words[0]); // theta
+      Sn[i][1] = atof(words[1]); // phi
+      Sn[i][2] = atof(words[2]); // area
+      i++;
+    }
+  }
+
   delete [] words;
 
   fclose(fp);
