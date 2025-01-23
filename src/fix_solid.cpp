@@ -387,9 +387,15 @@ void FixSolid::update_particle()
         Fd[1] = solid_force[ip][1];
         Fd[2] = solid_force[ip][2];
 
-        // joules
-        double Ein = solid_force[ip][3];
-        double Enet;
+        // first solve for new temperature
+        double Ein = solid_force[ip][3]; // joules
+        // joules -> kg x m^2 / s^2
+        // specific heat: J/(kg K) -> kg x m^2 / (s^2 x kg x K)
+        // ... -> m^2 / (s^2 x K)
+        // K = K + (kg x m^2/s^3) / (m^2 / (s^2 x K)) / kg * s
+        // K = K + K x (1/s^3) / (1/(s^2)) * s
+        // K = K + K
+        Tp_new = Tp + Ein/csp/mp*update->dt*nevery;
 
         // only assume particle can sublimate
 
@@ -401,7 +407,7 @@ void FixSolid::update_particle()
           if (pwhich == AVERAGE) p = solid_bulk[ip][4];
 
           // use updated temp
-          double T_degC = Tp - 273.15;
+          double T_degC = Tp_new - 273.15;
 
           // calculate saturation pressure of ice and water based on particle temp
           // ref: Huang 2018 
@@ -420,7 +426,7 @@ void FixSolid::update_particle()
           double M_h2o = 0.018; // [kg/mol]
           double R_u = 8.314; // [J/(mol K)]
           // kg per second per area
-          double flux = (psat - p)*sqrt(M_h2o/(2.0*3.14159*R_u*Tp));
+          double flux = (psat - p)*sqrt(M_h2o/(2.0*3.14159*R_u*Tp_new));
           if (flux < 0) flux = 0.0;
 
           // determine mass lost and update radius based on
@@ -432,29 +438,11 @@ void FixSolid::update_particle()
           mp_new = mp - del_mp;
 
           // new reduced particle size
-          if (mp_new > 0) {
-            Rp_new = pow( (mp_new/rho_solid)*0.75/3.14159, 1.0/3.0);
-
-            double Eflux = del_mp*dHsub;
-            Enet = Ein - Eflux;
-
-            // update particle temp based on net heat flux
-            // based on sign of qnet, gas may or may not provide enough energy
-            // .. to compensate energy lost due to phase change
-            Tp_new = Tp + Enet/csp/mp*update->dt*nevery; // use old mass
-
-          // particle is gone
-          } else Rp_new = Tp_new = mp_new = 0.0;
+          if (mp_new > 0) Rp_new = pow( (mp_new/rho_solid)*0.75/3.14159, 1.0/3.0);
+          else Rp_new = Tp_new = mp_new = 0.0; // particle is gone
 
         } else {
           mp_new = mp;
-          // joules -> kg x m^2 / s^2
-          // specific heat: J/(kg K) -> kg x m^2 / (s^2 x kg x K)
-          // ... -> m^2 / (s^2 x K)
-          // K = K + (kg x m^2/s^3) / (m^2 / (s^2 x K)) / kg * s
-          // K = K + K x (1/s^3) / (1/(s^2)) * s
-          // K = K + K
-          Tp_new = Tp + Ein/csp/mp*update->dt*nevery;
           Rp_new = Rp;
         } // end phase change check
 
