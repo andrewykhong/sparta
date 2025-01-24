@@ -330,9 +330,9 @@ void FixSolid::update_particle()
   // particle related
 
   double vold[3],cx,cy,cz,csq;
-  double Rp,phi_s,phi_l,Tp,csp;
+  double Rp,Lp,phi_s,phi_l,Tp,csp;
   double mp, mp_s, mp_l;
-  double Tp_new,Rp_new,mp_new;
+  double Tp_new,Rp_new,Lp_new,mp_new;
   double Q,mp_loss,rho,new_vol;
 
   double mass_g, Eth_g, Erot_g, U_g[3], total_rdof;
@@ -371,14 +371,17 @@ void FixSolid::update_particle()
       isp = particles[ip].ispecies;
       if (isp == solid_species) {
         Rp = solid_array[ip][1];
+        Lp = solid_array[ip][4];
         Tp = solid_array[ip][2];
         phi_s = solid_array[ip][3];
         phi_l = 1.0-phi_s;
         csp = phi_s*cp_solid + phi_l*cp_liquid;
 
         double Vp;
-        if (dim == 2) Vp = 3.14159*pow(Rp,2.0);
-        else Vp = 4./3.*3.14159*pow(Rp,3.0);
+        if (shape == SPHERE) Vp = 4./3.*MY_PI*pow(Rp,3.0);
+        else if (shape == DISC) Vp = 2.0*MY_PI*Rp*Rp;
+        else if (shape == CYLINDER) Vp = (MY_PI*Rp*Rp)*Lp;
+
         mp = Vp*(phi_s*rho_solid + phi_l*rho_liquid);
 
         // force on each real solid particle (do not need to update with fnum)
@@ -433,17 +436,28 @@ void FixSolid::update_particle()
           // ... Hertz Knudsen Equation
           // ref: Kossacki and Leliwa-Kopystynski (2014) Icarus
           // if sublimation rate is "slow", then can use current surface area
-          double area = 3.14159*4.0*Rp*Rp;
+          double area;
+          if (shape == SPHERE || shape == DISC) area = 4.0*MY_PI*Rp*Rp;
+          else if (shape == DISC) area = 2.0*MY_PI*Rp*Rp;
+          else if (shape == CYLINDER) area = 2.0*MY_PI*Rp*(Rp+Lp);
+
           double del_mp = flux * area * update->dt * nevery;
           mp_new = mp - del_mp;
 
           // new reduced particle size
-          if (mp_new > 0) Rp_new = pow( (mp_new/rho_solid)*0.75/3.14159, 1.0/3.0);
-          else Rp_new = Tp_new = mp_new = 0.0; // particle is gone
-
+          double Vscale = mp_new/mp; // assume constant density
+          if (mp_new > 0) {
+            if (shape == SPHERE) Rp_new = Rp*pow(Vscale,1.0/3.0);
+            else if (shape == DISC) Rp_new = Rp*pow(Vscale,0.5);
+            else if (shape == CYLINDER) {
+              Rp_new = Rp*pow(Vscale,1.0/3.0);
+              Lp_new = Lp*pow(Vscale,1.0/3.0);
+            }
+          } else Rp_new = Lp_new = Tp_new = mp_new = 0.0; // particle is gone  
         } else {
           mp_new = mp;
           Rp_new = Rp;
+          Lp_new = Lp;
         } // end phase change check
 
         /*if (fabs(Ein) > 0) {
@@ -457,6 +471,7 @@ void FixSolid::update_particle()
         // stpre new particle temp
         solid_array[ip][1] = Rp_new;
         solid_array[ip][2] = Tp_new;
+        solid_array[ip][4] = Lp_new;
 
         // record change in momentum and kinetic energy
         for (int d = 0; d < dim; d++) {
