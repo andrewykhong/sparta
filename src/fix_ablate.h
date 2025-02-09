@@ -73,6 +73,7 @@ class FixAblate : public Fix {
 
   double **cvalues;       // corner point values
   double ***mvalues;      // corner multi values
+  double **avalues;       // corner "area" values
   int *tvalues;           // per-cell type value
   int tvalues_flag;       // 1 if tvalues is defined (by ReadIsurf)
 
@@ -85,6 +86,8 @@ class FixAblate : public Fix {
   int **mcflags;
 
   double *celldelta;       // per-cell delta from compute or fix source
+  double *cellarea;        // per-cell surface area
+  double *cellarea_ghost;
   double **cdelta;         // per-corner point deltas
   double **cdelta_ghost;   // ditto for my ghost cells communicated to me
   double ***mdelta;        // cdelta for multivalues
@@ -145,6 +148,8 @@ class FixAblate : public Fix {
   void sync_multiv_multid_inside();
 
   // for Marching spheres
+  void compute_surface_area();
+  void set_total_area();
   void decrement_sphere();
   int sync_sphere(int);
   void count_interface();

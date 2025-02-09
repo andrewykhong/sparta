@@ -41,7 +41,7 @@
 using namespace SPARTA_NS;
 
 enum{COMPUTE,FIX,VARIABLE,RANDOM,UNIFORM};
-enum{CVALUE,CDELTA,NVERT};
+enum{CVALUE,CDELTA,NVERT,AREA};
 
 #define INVOKED_PER_GRID 16
 #define DELTAGRID 1024            // must be bigger than split cells per cell
@@ -220,6 +220,7 @@ FixAblate::FixAblate(SPARTA *sparta, int narg, char **arg) :
   ixyz = NULL;
   mcflags = NULL;
   celldelta = NULL;
+  cellarea = NULL;
   cdelta = NULL;
   cdelta_ghost = NULL;
   mdelta = NULL;
@@ -281,6 +282,7 @@ FixAblate::~FixAblate()
   memory->destroy(mcflags);
 
   memory->destroy(celldelta);
+  memory->destroy(cellarea);
   memory->destroy(cdelta);
   memory->destroy(cdelta_ghost);
   memory->destroy(mdelta);
@@ -491,6 +493,8 @@ void FixAblate::end_of_step()
   //cellloss = 0;
   if (multi_dec_flag) {
     if (sphereflag) {
+      compute_surface_area();
+      set_total_area();
       decrement_sphere();
 
       if (carryflag) {
@@ -1430,7 +1434,8 @@ void FixAblate::comm_neigh_corners(int which)
   // ncomm = ilocal + Ncorner values
 
   int ncomm;
-  if (multi_val_flag && which != NVERT) ncomm = 1 + ncorner*nmultiv;
+  if (which == AREA) ncomm = 1;
+  else if (multi_val_flag && which != NVERT) ncomm = 1 + ncorner*nmultiv;
   else ncomm = 1 + ncorner;
 
   if (nsend*ncomm > maxbuf) {
@@ -1453,7 +1458,8 @@ void FixAblate::comm_neigh_corners(int which)
     for (i = 0; i < n; i++) {
       sbuf[m++] = ubuf(locallist[nsend]).d;
 
-      if (which == NVERT) {
+      if (which == AREA) sbuf[m++] = cellarea[icell];
+      else if (which == NVERT) {
         for (j = 0; j < ncorner; j++)
           sbuf[m++] = nvert[icell][j];
       } else {
@@ -1507,6 +1513,10 @@ void FixAblate::comm_neigh_corners(int which)
     memory->destroy(nvert_ghost);
     maxghost = grid->nghost;
     memory->create(nvert_ghost,maxghost,ncorner,"ablate:nvert_ghost");
+
+    memory->destroy(cellarea_ghost);
+    maxghost = grid->nghost;
+    memory->create(cellarea_ghost,maxghost,"ablate:cellarea_ghost");
   }
 
   // unpack received data into cdelta_ghost = ghost cell corner points
@@ -1520,7 +1530,8 @@ void FixAblate::comm_neigh_corners(int which)
     cellID = (cellint) ubuf(rbuf[m++]).u;
     ilocal = (*hash)[cellID];
     icell = ilocal - nglocal;
-    if (which == NVERT) {
+    if (which == AREA) cellarea_ghost[icell] = rbuf[m++];
+    else if (which == NVERT) {
       for (j = 0; j < ncorner; j++)
         nvert_ghost[icell][j] = rbuf[m++];
     } else {
@@ -1605,6 +1616,9 @@ int FixAblate::pack_grid_one(int icell, char *buf, int memflag)
     }
   }
 
+  if (memflag) memcpy(ptr,avalues[icell],ncorner*sizeof(double));
+  ptr += ncorner*sizeof(double);
+
   if (tvalues_flag) {
     if (memflag) {
       double *dbuf = (double *) ptr;
@@ -1648,6 +1662,8 @@ int FixAblate::pack_grid_one(int icell, char *buf, int memflag)
         }
       }
 
+      if (memflag) memcpy(ptr,avalues[jcell],ncorner*sizeof(double));
+      ptr += ncorner*sizeof(double);
     }
   }
 
@@ -1676,6 +1692,9 @@ int FixAblate::unpack_grid_one(int icell, char *buf)
       ptr += nmultiv*sizeof(double);
     }
   }
+
+  memcpy(avalues[icell],ptr,ncorner*sizeof(double));
+  ptr += ncorner*sizeof(double);
 
   if (tvalues_flag) {
     double *dbuf = (double *) ptr;
@@ -1715,6 +1734,9 @@ int FixAblate::unpack_grid_one(int icell, char *buf)
         }
       }
 
+      memcpy(avalues[jcell],ptr,ncorner*sizeof(double));
+      ptr += ncorner*sizeof(double);
+
     }
     nglocal += nsplit;
   }
@@ -1736,6 +1758,7 @@ void FixAblate::copy_grid_one(int icell, int jcell)
     for (int j = 0; j < ncorner; j++)
       memcpy(mvalues[jcell][j],mvalues[icell][j],nmultiv*sizeof(double));
   }
+  memcpy(avalues[jcell],avalues[icell],ncorner*sizeof(double));
 
   if (tvalues_flag) tvalues[jcell] = tvalues[icell];
 
@@ -1766,6 +1789,7 @@ void FixAblate::add_grid_one()
       for (int j = 0; j < nmultiv; j++)
         mvalues[nglocal][i][j] = 0.0;
   }
+  for (int i = 0; i < ncorner; i++) avalues[nglocal][i] = 0.0;
 
   if (tvalues_flag) tvalues[nglocal] = 0;
   ixyz[nglocal][0] = 0;
@@ -1804,6 +1828,8 @@ void FixAblate::grow_percell(int nnew)
   memory->grow(ixyz,maxgrid,3,"ablate:ixyz");
   memory->grow(mcflags,maxgrid,4,"ablate:mcflags");
   memory->grow(celldelta,maxgrid,"ablate:celldelta");
+  memory->grow(cellarea,maxgrid,"ablate:cellarea");
+  memory->grow(avalues,maxgrid,ncorner,"ablate:avalues");
   if (multi_val_flag) memory->grow(mdelta,maxgrid,ncorner,nmultiv,"ablate:mdelta");
   else memory->grow(cdelta,maxgrid,ncorner,"ablate:cdelta");
   if (multi_dec_flag) memory->grow(nvert,maxgrid,ncorner,"ablate:nvert");
@@ -1928,10 +1954,13 @@ double FixAblate::memory_usage()
   double bytes = 0.0;
   if (multi_val_flag) bytes += maxgrid*ncorner*nmultiv * sizeof(double); // mvalues
   else bytes += maxgrid*ncorner * sizeof(double);   // cvalues
+  bytes += maxgrid*ncorner * sizeof(double);   // avalues
   if (tvalues_flag) bytes += maxgrid * sizeof(int);   // tvalues
   bytes += maxgrid*3 * sizeof(int);            // ixyz
   // NOTE: add for mcflags if keep
   bytes += maxgrid * sizeof(double);           // celldelta
+  // NOTE: add for mcflags if keep
+  bytes += maxgrid * sizeof(double);           // cellarea
   if (multi_val_flag) bytes += maxgrid*ncorner*nmultiv * sizeof(double); // mdelta
   else bytes += maxgrid*ncorner * sizeof(double);   // cdelta
   if (multi_val_flag) bytes += maxgrid*ncorner*nmultiv * sizeof(double); // mdelta_ghost
