@@ -41,7 +41,7 @@ enum{SPHERE,DISC,CYLINDER,CUSTOM};
 // for compute_solid_grid
 
 enum{SIZE,MASS,TEMP,FORCEX,FORCEY,FORCEZ,HEAT};
-enum{PZERO,AVERAGE};
+enum{PZERO,AVERAGE,FIX};
 
 #define DELTADELETE 1024
 #define MAXLINE 1024
@@ -107,6 +107,7 @@ FixSolid::FixSolid(SPARTA *sparta, int narg, char **arg) :
       phase_flag = 1;
       if (strcmp(arg[iarg+1],"zero") == 0) pwhich = PZERO;
       else if (strcmp(arg[iarg+1],"average") == 0) pwhich = AVERAGE;
+      else if (strcmp(arg[iarg+1],"fix") == 0) pwhich = FIX;
       else error->all(FLERR,"Invalid pressure choice for fix solid command");
       iarg += 2;
     } else if (strcmp(arg[iarg],"nevery") == 0) { 
@@ -231,8 +232,8 @@ void FixSolid::init()
     c_adia /= sum;
   }
 
-  fnum_rat = 1.0/particle->species[solid_species].specwt;
-  ofnum_rat = particle->species[solid_species].specwt;
+  fnum_rat = 1.0/particle->species[solid_species].specwt; // gas over solid
+  ofnum_rat = particle->species[solid_species].specwt; // solid over gas
 
   reallocate();
 }
@@ -338,7 +339,7 @@ void FixSolid::update_particle()
   double mass_g, Eth_g, Erot_g, U_g[3], total_rdof;
   double dj[3], dke, dT;
 
-  int nsolid;
+  int nsolid,ngas;
 
   // FOR DEBUG
   double dmom_part[3], dE_part;
@@ -352,7 +353,7 @@ void FixSolid::update_particle()
 
     np = cinfo[icell].count;
     if (np <= 0) continue;
-    nsolid = 0;
+    nsolid = ngas = 0;
 
     // manually check conservation
 
@@ -423,6 +424,10 @@ void FixSolid::update_particle()
           double R_u = 8.314; // [J/(mol K)]
           // kg per second per area
           double flux = (psat - p)*sqrt(M_h2o/(2.0*3.14159*R_u*Tp));
+          
+          // TODO: For testing
+          //flux = 3.5e6*sqrt(M_h2o/(2.0*3.14159*R_u*Tp)); 
+
           if (flux < 0) flux = 0.0;
 
           // determine mass lost and update radius based on
@@ -437,9 +442,21 @@ void FixSolid::update_particle()
           double del_mp = flux * area * update->dt * nevery;
           mp_new = mp - del_mp;
 
+          //printf("area: %4.3e\n", area);
+          // TODO: For testing
+          //Ein = 37*area/update->dt;
+
           // energy loss by mass loss
+          // Hsub = (J / kg) = m^2 / s^2
+          // Hsub * dm = m^2 kg / s^2
+          // Hsub * dm / cp = (m^2 kg / s^2) (K s^2 / m^2) = K kg
+          // Hsub * dm / (m cp) = K
           double Edm = del_mp*dHsub;
           Tp_new = Tp + (Ein*update->dt-Edm)/csp/mp_new*nevery;
+
+          //printf("mp: %4.3e; dmp: %4.3e\n", mp, del_mp);
+          //printf("Edm: %4.3e; Ein: %4.3e\n", Edm, Ein*update->dt);
+          //error->one(FLERR,"ck");
 
           // new reduced particle size
           double Vscale = mp_new/mp; // assume constant density
@@ -464,14 +481,6 @@ void FixSolid::update_particle()
           Lp_new = Lp;
         } // end phase change check
 
-        /*if (fabs(Ein) > 0) {
-          printf("Ein: %4.3e\n", Ein);
-          printf("mp: %4.3e -> %4.3e\n", mp, mp_new);
-          printf("Tp: %4.3e -> %4.3e\n", Tp, Tp_new);
-          printf("Rp: %4.3e -> %4.3e\n", Rp, Rp_new);
-          error->one(FLERR,"ck");
-        }*/
-
         // stpre new particle temp
         solid_array[ip][1] = Rp_new;
         solid_array[ip][2] = Tp_new;
@@ -480,12 +489,12 @@ void FixSolid::update_particle()
         // record change in momentum and kinetic energy
         for (int d = 0; d < dim; d++) {
           // old
-          dj[d] -= mp*particles[ip].v[d];
+          //dj[d] -= mp*particles[ip].v[d];
           dke -= 0.5*mp*(particles[ip].v[d]*particles[ip].v[d]);
           // update
           particles[ip].v[d] += Fd[d]/mp*update->dt*nevery;
           // new
-          dj[d] += mp_new*particles[ip].v[d];
+          dj[d] += Fd[d]*update->dt*nevery;
           dke += 0.5*mp_new*(particles[ip].v[d]*particles[ip].v[d]);
         }
 
@@ -495,7 +504,7 @@ void FixSolid::update_particle()
         //printf("mp: %4.3e; mp_new: %4.3e\n", mp, mp_new);
         //printf("Ein: %4.3e, Told: %4.3e; Tnew: %4.3e\n", Ein, Tp, Tp_new);
         //printf("dj: %4.3e, %4.3e, %4.3e; dke: %4.3e; dT: %4.3e\n",
-        //  dj[0], dj[1], dj[2], dke, dT);
+        //  dj[0], dj[1], dj[2], dke, Tp_new-Tp);
         //error->one(FLERR,"ck");
 
         // update per-grid forces for outputting
@@ -519,12 +528,13 @@ void FixSolid::update_particle()
       
       // record total gas mass and momentum
       } else if (conserve_flag) {
+        ngas++;
         double imass = species[isp].mass;
         mass_g += imass;
         total_rdof += species[isp].rotdof;
         Erot_g += particles[ip].erot;
         for (int d = 0; d < dim; d++) {
-          U_g[d] += imass*particles[ip].v[d];
+          U_g[d] += imass*particles[ip].v[d]; // total momentum
           Eth_g  += 0.5*imass*(particles[ip].v[d]*particles[ip].v[d]);
         }
       } // end species check
@@ -546,31 +556,49 @@ void FixSolid::update_particle()
         dU_g[d] = -dj[d]*ofnum_rat/mass_g;
         U_g[d] /= mass_g;
       }
+
       dke *= ofnum_rat;
       dT *= ofnum_rat;
 
+      //printf("dU_g: %4.3e, %4.3e, %4.3e\n", dU_g[0], dU_g[1], dU_g[2]);
+      //printf("dke: %4.3e, dT: %4.3e\n", dke, dT);
+      //printf("U_g: %4.3e, %4.3e, %4.3e\n",U_g[0], U_g[1], U_g[2]);
+
+      // total energy change calculated from solid
       double dE = -0.5*mass_g*(dU_g[0]*dU_g[0]+dU_g[1]*dU_g[1]+dU_g[2]*dU_g[2])-(dke+dT);
 
       Eth_g -= 0.5*mass_g*(U_g[0]*U_g[0]+U_g[1]*U_g[1]+U_g[2]*U_g[2]);
-      double dEth  = dE * (3.0*(np-nsolid))/(3.0*(np-nsolid)+total_rdof);
+      double dEth  = dE * (3.0*ngas)/(3.0*ngas+total_rdof);
       double dErot = dE - dEth;
-      double phi = sqrt( (Eth_g+dE)/Eth_g );
+      double phi = sqrt( (Eth_g+dEth)/Eth_g );
+      double phi_rot = (dErot+Erot_g)/Erot_g;
+      if (Erot_g == 0.0) phi_rot = 0.0;
+
+      //printf("Eth_g: %4.3e, dEth: %4.3e, phi: %4.3e\n\n", Eth_g, dEth, phi);
+
+      if ((Eth_g+dEth)/Eth_g < 0.0) error->one(FLERR,"Negative energy");
 
       //if (dE<0) error->one(FLERR,"negative energy change");
 
       // update velocities and internal modes
+
       ip = cinfo[icell].first;
+      //double Uold = 0.0;
+      //double Unew = 0.0;
       while (ip >= 0) {
         isp = particles[ip].ispecies;
         if (isp != solid_species) {
+          //Uold += particles[ip].v[0];
           for (int d = 0; d < dim; d++) {
             particles[ip].v[d] =
               (particles[ip].v[d]-U_g[d])*phi + (U_g[d]+dU_g[d]);
           }
-          //particles[ip].erot *= (dErot+Erot_g)/Erot_g;
+          particles[ip].erot *= phi_rot;
+          //Unew += particles[ip].v[0];
         }
         ip = next[ip];
       }
+      //printf("%4.3e\n", (Unew - Uold)/ngas-dU_g[0]);
     } // end conserve
 
     // update per-grid forces for outputting

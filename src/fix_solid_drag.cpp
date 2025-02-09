@@ -160,7 +160,6 @@ void FixSolid::update_Fq_fm()
             cp = sqrt(2.0*update->boltz*Tp/mass);
             // energy exchange due to rotational energy only pertinent for 
             // ... diffuse contribution
-            Eg += c_diff*cmag*(erot - (0.5*nrot)*update->boltz*Tp);
 
             Q = 0.0;
             F[0] = F[1] = F[2] = 0.0;
@@ -169,28 +168,33 @@ void FixSolid::update_Fq_fm()
               csx = Rp*Rp*MY_PI;
               for (int d = 0; d < dim; d++) Fg[d] += mass*csx*F[d];
               Eg += mass*csx*Q;
+              Eg += c_diff*cmag*(erot - (0.5*nrot)*update->boltz*Tp)*csx;
             } else if (shape == DISC) {
               Fdisc(c, cmag, cp, theta, phi, F, Q);
               csx = Rp*Rp*MY_PI;
               for (int d = 0; d < dim; d++) Fg[d] += mass*csx*F[d];
               Eg += mass*csx*Q;
+              Eg += c_diff*cmag*(erot - (0.5*nrot)*update->boltz*Tp)*csx;
             } else if (shape == CYLINDER) {
               // disc part first
               Fdisc(c, cmag, cp, theta, phi, F, Q);
               csx = Rp*Rp*MY_PI;
               for (int d = 0; d < dim; d++) Fg[d] += mass*csx*F[d];
               Eg += mass*csx*Q;
+              Eg += c_diff*cmag*(erot - (0.5*nrot)*update->boltz*Tp)*csx;
 
               // then half cylinder
               Fcyl(c, cmag, cp, theta, phi, F, Q);
               csx = 2.0*Rp*Lp;
               for (int d = 0; d < dim; d++) Fg[d] += mass*csx*F[d];
               Eg += mass*csx*Q;
+              Eg += c_diff*cmag*(erot - (0.5*nrot)*update->boltz*Tp)*csx;
             } else if (shape == CUSTOM) {
               Fcustom(c, cmag, cp, F, Q);
               // cross section included in previous calc.
               for (int d = 0; d < dim; d++) Fg[d] += mass*F[d];
               Eg += mass*Q;
+              Eg += c_diff*cmag*(erot - (0.5*nrot)*update->boltz*Tp)*csx;
             }
           }
         }
