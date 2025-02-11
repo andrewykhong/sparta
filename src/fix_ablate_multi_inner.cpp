@@ -44,6 +44,148 @@ enum{CVALUE,CDELTA,NVERT,AREA};
 #define EPSILON 1.0e-4            // this is on a scale of 0 to 255
 
 /* ----------------------------------------------------------------------
+   Finds total surface area around a corner point 
+   ... for multipoint decrement
+------------------------------------------------------------------------- */
+
+void FixAblate::compute_surface_area()
+{
+  int i,j,icell,isurf;
+
+  Surf::Line *line;
+  Surf::Line *lines = surf->lines;
+  Surf::Tri *tri;
+  Surf::Tri *tris = surf->tris;
+
+  int nsurf;
+  double dx,dy,dz;
+  double total_area, cell_volume, solid_volume;
+  surfint *csurfs;
+
+  Grid::ChildCell *cells = grid->cells;
+  Grid::ChildInfo *cinfo = grid->cinfo;
+
+  for (icell = 0; icell < nglocal; icell++) {
+
+    cellarea[icell] = 0.0;
+    nsurf = cells[icell].nsurf;
+    if (!nsurf) continue;
+
+    // compute total surface area in cell
+    csurfs = cells[icell].csurfs;
+    total_area = 0;
+    for (i = 0; i < nsurf; i++) {
+      isurf = csurfs[i];
+      if (dim == 2) {
+        line = &lines[isurf];
+        double dx = line->p1[0]-line->p2[0];
+        double dy = line->p1[1]-line->p2[1];
+        total_area += sqrt(dx*dx+dy*dy);
+      } else {
+        tri = &tris[isurf];
+        double p1[3], p2[3], p1x2[3];
+        for (j = 0; j < 3; j++) {
+          p1[j] = tri->p2[j]-tri->p1[j];
+          p2[j] = tri->p3[j]-tri->p1[j];
+        }
+
+        MathExtra::cross3(p1,p2,p1x2);
+        double iarea = 0.0;
+        for (j = 0; j < 3; j++) iarea += p1x2[j]*p1x2[j];
+        if (iarea < 0.0) error->one(FLERR,"Negative area");
+        total_area += sqrt(iarea)*0.5;
+      }
+    }
+
+    cellarea[icell] = total_area;
+  }
+}
+
+/* ----------------------------------------------------------------------
+   find average surface area around the corner point
+------------------------------------------------------------------------- */
+
+void FixAblate::set_total_area()
+{
+  int i,ix,iy,iz,jx,jy,jz,ixfirst,iyfirst,izfirst,jcorner;
+  int icell,jcell;
+  int nsurf;
+  double total, iarea;
+
+  comm_neigh_corners(AREA);
+
+  // perform update of corner pts for all my owned grid cells
+  //   using contributions from all cells that share the corner point
+  // insure order of numeric operations will give exact same answer
+  //   for all Ncorner duplicates of a corner point (stored by other cells)
+
+  Grid::ChildCell *cells = grid->cells;
+  Grid::ChildInfo *cinfo = grid->cinfo;
+
+  for (icell = 0; icell < nglocal; icell++) {
+    if (!(cinfo[icell].mask & groupbit)) continue;
+    if (cells[icell].nsplit <= 0) continue;
+
+    ix = ixyz[icell][0];
+    iy = ixyz[icell][1];
+    iz = ixyz[icell][2];
+
+    // loop over corner points
+
+    for (i = 0; i < ncorner; i++) {
+
+      // ixyz first = offset from icell of lower left cell of 2x2x2 stencil
+      //              that shares the Ith corner point
+
+      ixfirst = (i % 2) - 1;
+      iyfirst = (i/2 % 2) - 1;
+      if (dim == 2) izfirst = 0;
+      else izfirst = (i / 4) - 1;
+
+      // loop over 2x2x2 stencil of cells that share the corner point
+      // also works for 2d, since izfirst = 0
+
+      total = 0.0;
+      nsurf = 0;
+      jcorner = ncorner;
+
+      for (jz = izfirst; jz <= izfirst+1; jz++) {
+        for (jy = iyfirst; jy <= iyfirst+1; jy++) {
+          for (jx = ixfirst; jx <= ixfirst+1; jx++) {
+            jcorner--;
+
+            // check if neighbor cell is within bounds of ablate grid
+
+            if (ix+jx < 1 || ix+jx > nx) continue;
+            if (iy+jy < 1 || iy+jy > ny) continue;
+            if (iz+jz < 1 || iz+jz > nz) continue;
+
+            // jcell = local index of (jx,jy,jz) neighbor cell of icell
+
+            jcell = walk_to_neigh(icell,jx,jy,jz);
+
+            // update total with one corner point of jcell
+            // jcorner descends from ncorner
+
+            if (jcell < nglocal) iarea = cellarea[jcell];
+            else iarea = cellarea_ghost[jcell-nglocal];
+
+            if (iarea > 0) {
+              total = (total*nsurf + iarea*iarea)/(nsurf+1);
+              nsurf++;
+            }
+
+          }
+        }
+      }
+
+      if (total < 0.0) error->one(FLERR,"Negative area");
+      avalues[icell][i] = sqrt(total);
+    } // end corners
+  } // end cells
+}
+
+/* ----------------------------------------------------------------------
    Multi-point decrement for sphere option (only works with single values)
 ------------------------------------------------------------------------- */
 
@@ -70,6 +212,10 @@ void FixAblate::decrement_sphere()
   int nsurf;
   int iupdate[ncorner];
   double ninter;
+
+  double vol_fac;
+  if (dim == 2) vol_fac = 2.0;
+  else vol_fac = 3.0;
 
   for (int icell = 0; icell < nglocal; icell++) {
     if (!(cinfo[icell].mask & groupbit)) continue;
@@ -105,7 +251,7 @@ void FixAblate::decrement_sphere()
 
       if (ninter == 0) continue;
       iupdate[i] = 1;
-      total_area += pow(avalues[icell][i],dim);
+      total_area += pow(avalues[icell][i],vol_fac);
       Nin++;
     }
 
@@ -123,9 +269,10 @@ void FixAblate::decrement_sphere()
       if (iupdate[i]) {
 /*-------------------------------------------------------------------*/
         // total change proportional to surface area around that corner
-        double iarea = pow(avalues[icell][i],dim);
+        double iarea = pow(avalues[icell][i],vol_fac);
         perout = total * (iarea / total_area);
         if (iarea > total_area) error->one(FLERR,"Area miscalculated");
+        //perout = total/Nin;
         if (multi_val_flag) {
           if (total < 0) {
             for (j = 0; j < nmultiv; j++) mdelta[icell][i][j] += perout;
@@ -350,126 +497,6 @@ int FixAblate::sync_sphere(int bound)
 }
 
 /* ----------------------------------------------------------------------
-   Finds total surface area around a corner point 
-   ... for multipoint decrement
-------------------------------------------------------------------------- */
-
-void FixAblate::compute_surface_area()
-{
-  int i,j,icell,isurf;
-
-  Surf::Line *line;
-  Surf::Line *lines = surf->lines;
-  Surf::Tri *tri;
-  Surf::Tri *tris = surf->tris;
-
-  int nsurf;
-  double dx,dy,dz;
-  double total_area, cell_volume, solid_volume;
-  surfint *csurfs;
-
-  Grid::ChildCell *cells = grid->cells;
-  Grid::ChildInfo *cinfo = grid->cinfo;
-
-  for (icell = 0; icell < nglocal; icell++) {
-    dx = cells[icell].hi[0]-cells[icell].lo[0];
-    dy = cells[icell].hi[1]-cells[icell].lo[1];
-    if (dim == 2) dz = 1;
-    else dz = cells[icell].hi[2]-cells[icell].lo[2];
-    cell_volume = dx*dy*dz;
-    solid_volume = cell_volume-cinfo[icell].volume;
-    if (solid_volume < 0.0) error->one(FLERR,"Negative volume");
-
-    cellarea[icell] = solid_volume;
-    //if (dim == 2) cellarea[icell] = pow(solid_volume,1.0/2.0);
-    //else cellarea[icell] = pow(solid_volume,2.0/3.0);
-  }
-}
-
-/* ----------------------------------------------------------------------
-   sync all copies of corner points values for all owned grid cells
-   algorithm:
-     comm my cdelta values that are shared by neighbor
-     each corner point is shared by N cells, less on borders
-     dsum = sum of decrements to that point by all N cells
-     newvalue = MAX(oldvalue-dsum,0)
-   all N copies of corner pt are set to newvalue
-     in numerically consistent manner (same order of operations)
-------------------------------------------------------------------------- */
-
-void FixAblate::set_total_area()
-{
-  int i,ix,iy,iz,jx,jy,jz,ixfirst,iyfirst,izfirst,jcorner;
-  int icell,jcell;
-  double total;
-
-  comm_neigh_corners(AREA);
-
-  // perform update of corner pts for all my owned grid cells
-  //   using contributions from all cells that share the corner point
-  // insure order of numeric operations will give exact same answer
-  //   for all Ncorner duplicates of a corner point (stored by other cells)
-
-  Grid::ChildCell *cells = grid->cells;
-  Grid::ChildInfo *cinfo = grid->cinfo;
-
-  for (icell = 0; icell < nglocal; icell++) {
-    if (!(cinfo[icell].mask & groupbit)) continue;
-    if (cells[icell].nsplit <= 0) continue;
-
-    ix = ixyz[icell][0];
-    iy = ixyz[icell][1];
-    iz = ixyz[icell][2];
-
-    // loop over corner points
-
-    for (i = 0; i < ncorner; i++) {
-
-      // ixyz first = offset from icell of lower left cell of 2x2x2 stencil
-      //              that shares the Ith corner point
-
-      ixfirst = (i % 2) - 1;
-      iyfirst = (i/2 % 2) - 1;
-      if (dim == 2) izfirst = 0;
-      else izfirst = (i / 4) - 1;
-
-      // loop over 2x2x2 stencil of cells that share the corner point
-      // also works for 2d, since izfirst = 0
-
-      total = 0.0;
-      jcorner = ncorner;
-
-      for (jz = izfirst; jz <= izfirst+1; jz++) {
-        for (jy = iyfirst; jy <= iyfirst+1; jy++) {
-          for (jx = ixfirst; jx <= ixfirst+1; jx++) {
-            jcorner--;
-
-            // check if neighbor cell is within bounds of ablate grid
-
-            if (ix+jx < 1 || ix+jx > nx) continue;
-            if (iy+jy < 1 || iy+jy > ny) continue;
-            if (iz+jz < 1 || iz+jz > nz) continue;
-
-            // jcell = local index of (jx,jy,jz) neighbor cell of icell
-
-            jcell = walk_to_neigh(icell,jx,jy,jz);
-
-            // update total with one corner point of jcell
-            // jcorner descends from ncorner
-
-            if (jcell < nglocal) total += cellarea[jcell];
-            else total += cellarea_ghost[jcell-nglocal];
-          }
-        }
-      }
-
-      if (total < 0.0) error->one(FLERR,"Negative area");
-      avalues[icell][i] = total;
-    } // end corners
-  } // end cells
-}
-
-/* ----------------------------------------------------------------------
    Part 1 of 2 for handling out of bound values
 ------------------------------------------------------------------------- */
 
@@ -489,7 +516,6 @@ void FixAblate::count_interface()
   Surf::Tri *tri;
   Surf::Tri *tris = surf->tris;
 
-  int nsurf;
   double ninter;
 
   for (int icell = 0; icell < nglocal; icell++) {
