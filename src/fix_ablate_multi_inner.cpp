@@ -105,7 +105,7 @@ void FixAblate::decrement_sphere()
 
       if (ninter == 0) continue;
       iupdate[i] = 1;
-      total_area += avalues[icell][i];
+      total_area += pow(avalues[icell][i],dim);
       Nin++;
     }
 
@@ -118,12 +118,14 @@ void FixAblate::decrement_sphere()
         } else cvalues[icell][i] = 0.0;
       }
     }
-        
+
     for (i = 0; i < ncorner; i++) {
       if (iupdate[i]) {
 /*-------------------------------------------------------------------*/
         // total change proportional to surface area around that corner
-        perout = total * (avalues[icell][i] / total_area);
+        double iarea = pow(avalues[icell][i],dim);
+        perout = total * (iarea / total_area);
+        if (iarea > total_area) error->one(FLERR,"Area miscalculated");
         if (multi_val_flag) {
           if (total < 0) {
             for (j = 0; j < nmultiv; j++) mdelta[icell][i][j] += perout;
@@ -262,10 +264,12 @@ int FixAblate::sync_sphere(int bound)
           for (j = 0; j < nmultiv; j++) avgtotal += total[j];
 
           // move epsilon_adjust here
-          if (mvalues[icell][i][j] <= thresh) {
-            if (avgtotal <= 0.0) mvalues[icell][i][j] = 0.0;
-            else mvalues[icell][i][j] = thresh+EPSILON;
-          } else if (mvalues[icell][i][j] > 255.0) mvalues[icell][i][j] = 255.0;
+          for (j = 0; j < nmultiv; j++) {
+            if (mvalues[icell][i][j] <= thresh) {
+              if (avgtotal <= 0.0) mvalues[icell][i][j] = 0.0;
+              else mvalues[icell][i][j] = thresh+EPSILON;
+            } else if (mvalues[icell][i][j] > 255.0) mvalues[icell][i][j] = 255.0;
+          }
 
           // additional consistency step
           int allin;
@@ -273,14 +277,14 @@ int FixAblate::sync_sphere(int bound)
           else allin = 0;
 
           int mixflag = 0;
-          for (int j = 1; j < nmultiv; j++) {
+          for (j = 1; j < nmultiv; j++) {
             if (mvalues[icell][i][j] < thresh+EPSILON && allin) mixflag = 1; // out
             if (mvalues[icell][i][j] >= thresh+EPSILON && !allin) mixflag = 1; // in
           }
 
           // if mixflag = 1, inner indices in disagreement in terms of side
           if (mixflag || !allin) {
-            for (int j = 0; j < nmultiv; j++) {
+            for (j = 0; j < nmultiv; j++) {
               if (avgtotal <= 0.0) mvalues[icell][i][j] = 0.0;
               else mvalues[icell][i][j] = thresh+EPSILON;
             }
@@ -330,6 +334,16 @@ int FixAblate::sync_sphere(int bound)
       } // if multi
 
     } // end corners
+
+    // TODO : DEBUG
+    if (bound) {
+    for (i = 0; i < 4; i++) {
+    for (j = 0; j < 4; j++) {
+    if (mvalues[icell][i][j] > 255.0) {
+      printf("bound? %i; icell: %i; [%i][%i] - %4.3e\n", bound, icell, i, j, mvalues[icell][i][j]);
+      error->one(FLERR,"Bad sync");
+    }}}}
+
   } // end cells
 
   return anyout;
@@ -350,43 +364,26 @@ void FixAblate::compute_surface_area()
   Surf::Tri *tris = surf->tris;
 
   int nsurf;
-  double total_area;
+  double dx,dy,dz;
+  double total_area, cell_volume, solid_volume;
   surfint *csurfs;
 
   Grid::ChildCell *cells = grid->cells;
+  Grid::ChildInfo *cinfo = grid->cinfo;
 
   for (icell = 0; icell < nglocal; icell++) {
-    cellarea[i] = 0.0;
+    dx = cells[icell].hi[0]-cells[icell].lo[0];
+    dy = cells[icell].hi[1]-cells[icell].lo[1];
+    if (dim == 2) dz = 1;
+    else dz = cells[icell].hi[2]-cells[icell].lo[2];
+    cell_volume = dx*dy*dz;
+    solid_volume = cell_volume-cinfo[icell].volume;
+    if (solid_volume < 0.0) error->one(FLERR,"Negative volume");
 
-    nsurf = cells[icell].nsurf;
-    if (!nsurf) continue; // if no surfs, area is zero
-    csurfs = cells[icell].csurfs;
-
-    total_area = 0.0;
-    for (i = 0; i < nsurf; i++) {
-      isurf = csurfs[i];
-      if (dim == 2) {
-        line = &lines[isurf];
-        double dx = line->p1[0]-line->p2[0];
-        double dy = line->p1[1]-line->p2[1];
-        total_area += sqrt(dx*dx+dy*dy);
-      } else {
-        tri = &tris[isurf];
-        double p1[3], p2[3], p1x2[3];
-        for (j = 0; j < 3; j++) {
-          p1[j] = tri->p2[j]-tri->p1[j];
-          p2[j] = tri->p3[j]-tri->p1[j];
-        }       
-
-        MathExtra::cross3(p1,p2,p1x2);
-        double iarea = 0.0;
-        for (j = 0; j < 3; j++) iarea += p1x2[j]*p1x2[j];
-        total_area += sqrt(iarea)*0.5;
-      }
-    }
-    cellarea[i] = total_area;        
+    cellarea[icell] = solid_volume;
+    //if (dim == 2) cellarea[icell] = pow(solid_volume,1.0/2.0);
+    //else cellarea[icell] = pow(solid_volume,2.0/3.0);
   }
-
 }
 
 /* ----------------------------------------------------------------------
@@ -466,6 +463,7 @@ void FixAblate::set_total_area()
         }
       }
 
+      if (total < 0.0) error->one(FLERR,"Negative area");
       avalues[icell][i] = total;
     } // end corners
   } // end cells

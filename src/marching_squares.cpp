@@ -377,8 +377,8 @@ double MarchingSquares::interpolate(double v0, double v1, double lo, double hi)
 double MarchingSquares::extrapolate(double v0, double v1, double lo, double hi)
 {
   double cmax = 255.0;
-  if (v0 < 0 || v1 < 0) error->one(FLERR,"negative val");
-  if (v0 > cmax || v1 > cmax) error->one(FLERR,"big val");
+  if (v0 < 0 || v1 < 0) error->one(FLERR,"Negative corner point");
+  if (v0 > cmax || v1 > cmax) error->one(FLERR,"Corner point value over max");
 
   // both inside or both outside
   if (v0 > 0 && v1 > 0) return 0;

@@ -210,6 +210,7 @@ FixAblate::FixAblate(SPARTA *sparta, int narg, char **arg) :
   array_grid = cvalues = NULL;
   mvalues = NULL;
   tvalues = NULL;
+  avalues = NULL;
   ncorner = size_per_grid_cols;
 
   if(dim == 2) nmultiv = 4;
@@ -221,6 +222,7 @@ FixAblate::FixAblate(SPARTA *sparta, int narg, char **arg) :
   mcflags = NULL;
   celldelta = NULL;
   cellarea = NULL;
+  cellarea_ghost = NULL;
   cdelta = NULL;
   cdelta_ghost = NULL;
   mdelta = NULL;
@@ -277,12 +279,14 @@ FixAblate::~FixAblate()
   memory->destroy(cvalues);
   memory->destroy(mvalues);
   memory->destroy(tvalues);
+  memory->destroy(avalues);
 
   memory->destroy(ixyz);
   memory->destroy(mcflags);
 
   memory->destroy(celldelta);
   memory->destroy(cellarea);
+  memory->destroy(cellarea_ghost);
   memory->destroy(cdelta);
   memory->destroy(cdelta_ghost);
   memory->destroy(mdelta);
@@ -489,8 +493,6 @@ void FixAblate::end_of_step()
   // 2) is the decrement distributed to multiple corner points?
 
   int Nout, allNout;
-  //closs = 0;
-  //cellloss = 0;
   if (multi_dec_flag) {
     if (sphereflag) {
       compute_surface_area();
@@ -1434,7 +1436,7 @@ void FixAblate::comm_neigh_corners(int which)
   // ncomm = ilocal + Ncorner values
 
   int ncomm;
-  if (which == AREA) ncomm = 1;
+  if (which == AREA) ncomm = 1 + 1; // only one values for each cell
   else if (multi_val_flag && which != NVERT) ncomm = 1 + ncorner*nmultiv;
   else ncomm = 1 + ncorner;
 
@@ -1662,7 +1664,7 @@ int FixAblate::pack_grid_one(int icell, char *buf, int memflag)
         }
       }
 
-      if (memflag) memcpy(ptr,avalues[jcell],ncorner*sizeof(double));
+      if (memflag) memcpy(ptr,avalues[jcell],sizeof(double));
       ptr += ncorner*sizeof(double);
     }
   }
@@ -1734,8 +1736,8 @@ int FixAblate::unpack_grid_one(int icell, char *buf)
         }
       }
 
-      memcpy(avalues[jcell],ptr,ncorner*sizeof(double));
-      ptr += ncorner*sizeof(double);
+      //memcpy(avalues[jcell],ptr,ncorner*sizeof(double));
+      //ptr += ncorner*sizeof(double);
 
     }
     nglocal += nsplit;
@@ -1825,11 +1827,11 @@ void FixAblate::grow_percell(int nnew)
   if (multi_val_flag) memory->grow(mvalues,maxgrid,ncorner,nmultiv,"ablate:mvalues");
   else memory->grow(cvalues,maxgrid,ncorner,"ablate:cvalues");
   if (tvalues_flag) memory->grow(tvalues,maxgrid,"ablate:tvalues");
+  memory->grow(avalues,maxgrid,ncorner,"ablate:avalues");
   memory->grow(ixyz,maxgrid,3,"ablate:ixyz");
   memory->grow(mcflags,maxgrid,4,"ablate:mcflags");
   memory->grow(celldelta,maxgrid,"ablate:celldelta");
   memory->grow(cellarea,maxgrid,"ablate:cellarea");
-  memory->grow(avalues,maxgrid,ncorner,"ablate:avalues");
   if (multi_val_flag) memory->grow(mdelta,maxgrid,ncorner,nmultiv,"ablate:mdelta");
   else memory->grow(cdelta,maxgrid,ncorner,"ablate:cdelta");
   if (multi_dec_flag) memory->grow(nvert,maxgrid,ncorner,"ablate:nvert");
