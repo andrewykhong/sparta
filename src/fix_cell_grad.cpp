@@ -227,6 +227,113 @@ void FixCellGrad::end_of_step()
   //else end_of_step_average(t_target);
 }
 
+/* ---------------------------------------------------------------------- */
+// ip - particle index
+// pflag - type of particle
+// icell - which grid cell 
+// outface - which face particle is exitting to
+// frac - fraction of dtremain particle is in cell icell
+void FixCellGrad::mid_step(int ip, int pflag, int icell, int outface, double dtremain, double frac)
+{
+  // get particle mass
+  int isp = particle[ip].species;
+  double pmass = particle->species[isp].mass;
+
+  // grab the perg-grid custom arrays
+  double *cell = grid->edarray[particle->ewhich[cellbulkindex]];
+  double *face = grid->edarray[particle->ewhich[cellfaceindex]];
+
+  // update bulk properties in cell
+  // consider residence time
+
+  cell[icell][0] += mass*dtin;
+  cell[icell][1] += mass*v[0]*dtin;
+  cell[icell][2] += mass*v[1]*dtin;
+  cell[icell][3] += mass*v[2]*dtin;
+
+  // check face the particle WILL cross
+  if (frac < 1.0) {
+
+    // heaviside function
+    double theta = 1.0;
+    if (outface == XLO || outface == YLO || outface == ZLO) theta = -1.0;
+
+    // update cell face quants
+    // faces follow same enum order
+    // xlo -> 0, xhi -> 1, ylo -> 2, ...
+    int ivalue = 0;
+    int i_index;
+    for (int ival = 0; ival < FACELASTSIZE; ival++) {
+      if (faceids[ival]) {
+        i_index = ivalue+outface;
+        if (ival == RHO) face[icell][i_index] += pmass;
+        else if (ival == U) face[icell][i_index] += pmass*v[0];
+        else if (ival == V) face[icell][i_index] += pmass*v[1];
+        else if (ival == W) face[icell][i_index] += pmass*v[2];
+        else if (ival == UMAG) face[icell][i_index] += pmass*fabs(v[0]);
+        else if (ival == VMAG) face[icell][i_index] += pmass*fabs(v[1]);
+        else if (ival == WMAG) face[icell][i_index] += pmass*fabs(v[2]);
+        ivalue += (DIM*2);
+      }
+    } // END for face values
+
+    // update bulk cell quants
+    ivalue = 0;
+    double dtcell = dtremain * frac;
+    for (int ival = 0; ival < CELLLASTSIZE; ival++) {
+      if (cellids[ival]) {
+        if (ival == RHO_BULK) cell[icell][ivalue++] += pmass;
+        else if (ival == U_BULK) cell[icell][ivalue++] += pmass*v[0];
+        else if (ival == V_BULK) cell[icell][ivalue++] += pmass*v[1];
+        else if (ival == W_BULK) cell[icell][ivalue++] += pmass*v[2];
+        else if (ival == UVQSQ_BULK)
+          cell[icell][ivalue++] +=
+            pmass*(v[0]*v[0]+v[1]*v[1]+v[2]*v[2]);
+      }
+    } // END for cell values
+
+  } // END check future crossing
+
+  // check history if particle HAS crossed a cell face
+  // also considers any new particles created due to fix_emit
+  if (particles[i].dtremain < dt || pflag == PINSERT) {
+
+    // find which face the particle is closest to
+    double mindist;
+    int inface;
+
+    inface = XLO;
+    mindist = fabs(x[0] - lo[0]);
+    if (fabs(x[0]-hi[0]) < mindist) inface = XHI;
+    if (fabs(x[1]-lo[1]) < mindist) inface = YLO;
+    if (fabs(x[1]-hi[1]) < mindist) inface = YHI;
+    if (fabs(x[2]-lo[2]) < mindist) inface = ZLO;
+    if (fabs(x[2]-hi[2]) < mindist) inface = ZHI;
+
+    // heaviside function
+    double theta = 1.0;
+    if (inface == XLO || inface == YLO || inface == ZLO) theta = -1.0;
+
+    // update cell face quants
+    int ivalue = 0;
+    int i_index;
+    for (int ival = 0; ival < FACELASTSIZE; ival++) {
+      if (faceids[ival]) {
+        i_index = ivalue+inface;
+        if (ival == RHO) face[icell][i_index] += pmass;
+        else if (ival == U) face[icell][i_index] += pmass*v[0];
+        else if (ival == V) face[icell][i_index] += pmass*v[1];
+        else if (ival == W) face[icell][i_index] += pmass*v[2];
+        else if (ival == UMAG) face[icell][i_index] += pmass*fabs(v[0]);
+        else if (ival == VMAG) face[icell][i_index] += pmass*fabs(v[1]);
+        else if (ival == WMAG) face[icell][i_index] += pmass*fabs(v[2]);
+        ivalue += (DIM*2);
+      }
+    }
+
+  } // END check previous crossing
+}
+
 /* ----------------------------------------------------------------------
    memory usage
 ------------------------------------------------------------------------- */

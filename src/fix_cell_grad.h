@@ -32,6 +32,7 @@ class FixCellGrad : public Fix {
   virtual ~FixCellGrad();
   int setmask();
   void init();
+  void mid_step(int, int, int, int, double, double);
   void end_of_step();
   double memory_usage();
 
