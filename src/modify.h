@@ -37,7 +37,6 @@ class Modify : protected Pointers {
   void init();
   void setup();
   virtual void start_of_step();
-  virtual void mid_step();
   virtual void end_of_step();
   virtual void post_run();
 
@@ -73,7 +72,7 @@ class Modify : protected Pointers {
 
   // lists of fixes to apply at different stages of timestep
 
-  int *list_start_of_step,*list_mid_step,*list_end_of_step;
+  int *list_start_of_step,*list_end_of_step;
 
   int *end_of_step_every;
 

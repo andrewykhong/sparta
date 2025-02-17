@@ -530,7 +530,6 @@ void CreateISurf::surface_edge2d()
             mvalues[icell][i] = param;
           }
 
-
           if ((mvalues[icell][j] < 0 || oparam <= mvalues[icell][j]) &&
                svalues[icell][j] != 2) {
             if (oparam == 0) svalues[icell][j] = 1;

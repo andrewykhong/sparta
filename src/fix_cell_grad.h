@@ -14,12 +14,12 @@
 
 #ifdef FIX_CLASS
 
-FixStyle(temp/rescale,FixTempRescale)
+FixStyle(cell/gradient,FixCellGrad)
 
 #else
 
-#ifndef SPARTA_FIX_TEMP_RESCALE_H
-#define SPARTA_FIX_TEMP_RESCALE_H
+#ifndef SPARTA_FIX_CELL_GRAD_H
+#define SPARTA_FIX_CELL_GRAD_H
 
 #include "stdio.h"
 #include "fix.h"
@@ -35,7 +35,19 @@ class FixCellGrad : public Fix {
   void end_of_step();
   double memory_usage();
 
+  int xface, yface, zface; // flags for which faces to sum over
+  int nvalues;
+  int *faceids; // list of all face values
+  int *cellids; // list of all cell values
+  int cellbulkindex; // custom per-grid for cell center values
+  int cellfaceindex; // custom per-grid for cell face values
+
  protected:
+
+  double T_interval; //time interval for sampling crossings
+  int maxgrid;
+  int nevery;
+  int aveflag;
 
 };
 

@@ -87,6 +87,8 @@ Update::Update(SPARTA *sparta) : Pointers(sparta)
   optmove_flag = 0;
   fstyle = NOFIELD;
   fieldID = NULL;
+  fix_out_flag = 0;
+  outID = NULL;
 
   maxmigrate = 0;
   mlist = NULL;
@@ -115,6 +117,7 @@ Update::~Update()
 
   delete [] unit_style;
   delete [] fieldID;
+  delete [] outID;
   memory->destroy(mlist);
   delete [] slist_compute;
   delete [] blist_compute;
@@ -170,6 +173,15 @@ void Update::init()
           error->all(FLERR,"Cannot use optimized move with fix adapt");
       }
     }
+  }
+
+  if (fix_out_flag) {
+    ioutfix = modify->find_fix(outID);
+
+    // per-grid quantities for cell center and face quantities
+    indexcell = grid->find_custom((char *) "cellbulk");
+    indexface = grid->find_custom((char *) "cellface");
+    
   }
 
   // choose the appropriate move method
@@ -272,7 +284,6 @@ void Update::setup()
 void Update::run(int nsteps)
 {
   int n_start_of_step = modify->n_start_of_step;
-  int n_mid_step = modify->n_mid_step;
   int n_end_of_step = modify->n_end_of_step;
 
   // external per grid cell field
@@ -325,13 +336,6 @@ void Update::run(int nsteps)
     comm->migrate_particles(nmigrate,mlist);
     if (cellweightflag) particle->post_weight();
     timer->stamp(TIME_COMM);
-
-    // mid step fixes
-
-    if (n_mid_step) {
-      modify->mid_step();
-      timer->stamp(TIME_MODIFY);
-    }
 
     if (collide) {
       particle->sort();
@@ -1784,6 +1788,17 @@ void Update::global(int narg, char **arg)
           error->all(FLERR,"Global mem/limit setting cannot exceed 2GB");
         global_mem_limit = global_mem_limit_big;
       }
+      iarg += 2;
+    // for fixes which require quantites to be measured during the move phase
+    } else if (strcmp(arg[iarg],"fix") == 0) {
+      if (iarg+2 > narg) error->all(FLERR,"Illegal global command");
+      fix_out_flag = 1;
+
+      delete [] outID;
+      int n = strlen(arg[iarg+1]);
+      char *outID = new char[n];
+      strcpy(outID,&arg[iarg+1][2]);
+
       iarg += 2;
     } else error->all(FLERR,"Illegal global command");
   }

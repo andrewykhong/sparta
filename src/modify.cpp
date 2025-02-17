@@ -33,7 +33,6 @@ using namespace SPARTA_NS;
 #define START_OF_STEP  1
 #define END_OF_STEP    2
 #define POST_RUN       4
-#define MID_STEP       8
 
 /* ---------------------------------------------------------------------- */
 
@@ -100,7 +99,6 @@ void Modify::init()
   // create lists of fixes with masks for calling at each stage of run
 
   list_init(START_OF_STEP,n_start_of_step,list_start_of_step);
-  list_init(MID_STEP,n_mid_step,list_mid_step);
   list_init_end_of_step(END_OF_STEP,n_end_of_step,list_end_of_step);
 
   // create other lists of fixes and computes
@@ -149,16 +147,6 @@ void Modify::start_of_step()
 {
   for (int i = 0; i < n_start_of_step; i++)
     fix[list_start_of_step[i]]->start_of_step();
-}
-
-/* ----------------------------------------------------------------------
-   mid-step call, only for relevant fixes
-------------------------------------------------------------------------- */
-
-void Modify::mid_step()
-{
-  for (int i = 0; i < mid_step; i++)
-    fix[list_mid_step[i]]->mid_step();
 }
 
 /* ----------------------------------------------------------------------

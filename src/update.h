@@ -92,7 +92,7 @@ class Update : protected Pointers {
 
   double rcblo[3],rcbhi[3];    // debug info from RCB for dump image
 
-  // this info accessed by other classe to perform surface tallying
+  // this info accessed by other classes to perform surface tallying
   // by SurfReactAdsorb for on-surface reactions
   // by FixEmitSurf for particles emitted from surfs
 
@@ -100,6 +100,12 @@ class Update : protected Pointers {
   int nboundary_tally;     // # of Cmp tallying boundary bounce info this step
   class Compute **slist_active;   // list of active surf Computes this step
   class Compute **blist_active;   // list of active boundary Computes this step
+
+  // for updating per-grid quantites for a fix
+  int fix_out_flag;
+  char *outID;
+  int ioutfix;
+  int indexcell, indexface;
 
   // public methods
 
