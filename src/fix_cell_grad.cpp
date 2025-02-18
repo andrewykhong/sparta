@@ -24,6 +24,8 @@
 
 using namespace SPARTA_NS;
 
+enum{XLO,XHI,YLO,YHI,ZLO,ZHI,INTERIOR};         // same as Domain
+enum{PKEEP,PINSERT,PDONE,PDISCARD,PENTRY,PEXIT,PSURF};   // several files
 enum{INT,DOUBLE};                      // several files
 
 // cell face quantities
@@ -134,7 +136,7 @@ FixCellGrad::FixCellGrad(SPARTA *sparta, int narg, char **arg) :
     iarg += 2;
   }
 
-  // count number of values to track on faces and in cells
+  // count number of bulk and face values per-grid cell
 
   int nfacevalues = 0;
   for (int i = 0; i < FACELASTSIZE; i++)
@@ -147,17 +149,12 @@ FixCellGrad::FixCellGrad(SPARTA *sparta, int narg, char **arg) :
   if (nfacevalues == 0)
     error->one(FLERR,"No face values specified in fix cell grad");
 
-  // nface = number of faces to sum over
+  // nface = number of faces in the grid cell
 
   int nface = domain->dimension*2; // easiest to reference if all faces tracked
-  //if (xface) nface+=2;
-  //if (yface) nface+=2;
-  //if (zface) nface+=2;
-  //if (nface < 1 || nface > domain->dimension)
-  //  error->one(FLERR,"Incorrect number of faces found in fix cell grad");
 
   // store quantities in custom grid arrays
-  // check if custom per-particel attribute exists
+  // check if custom per-grid attribute exists
 
   cellbulkindex = grid->find_custom((char *) "cellbulk");
   cellfaceindex = grid->find_custom((char *) "cellface");
@@ -168,9 +165,6 @@ FixCellGrad::FixCellGrad(SPARTA *sparta, int narg, char **arg) :
   cellbulkindex = grid->add_custom((char *) "cellbulk", DOUBLE, ncellvalues);
   cellfaceindex = grid->add_custom((char *) "cellface", DOUBLE, nface*nfacevalues);
 
-  // per-cell array for aveflag = 1 case
-
-  maxgrid = 0;
 }
 
 /* ---------------------------------------------------------------------- */
@@ -227,29 +221,88 @@ void FixCellGrad::end_of_step()
   //else end_of_step_average(t_target);
 }
 
-/* ---------------------------------------------------------------------- */
+/* ----------------------------------------------------------------------
+   records crossing events
+------------------------------------------------------------------------- */
 // ip - particle index
-// pflag - type of particle
+// pflag - type of particle (can differ from new part flag; use one from update)
 // icell - which grid cell 
 // outface - which face particle is exitting to
+// dtremain - how much time left to move
 // frac - fraction of dtremain particle is in cell icell
+
 void FixCellGrad::mid_step(int ip, int pflag, int icell, int outface, double dtremain, double frac)
 {
+
+  Particle::OnePart *particles = particle->particles;
+
   // get particle mass
-  int isp = particle[ip].species;
+
+  int isp = particles[ip].species;
   double pmass = particle->species[isp].mass;
 
-  // grab the perg-grid custom arrays
+  // grab the per-grid custom arrays
+
   double *cell = grid->edarray[particle->ewhich[cellbulkindex]];
   double *face = grid->edarray[particle->ewhich[cellfaceindex]];
 
-  // update bulk properties in cell
-  // consider residence time
+  // check history if particle HAS crossed a cell face
+  // also considers any new particles created due to fix_emit
+  // if particles moving from previous iteration or inserted, the position
+  // ... should be on the cell edge
 
-  cell[icell][0] += mass*dtin;
-  cell[icell][1] += mass*v[0]*dtin;
-  cell[icell][2] += mass*v[1]*dtin;
-  cell[icell][3] += mass*v[2]*dtin;
+  if (particles[ip].dtremain < update->dt || pflag == PINSERT) {
+
+    // find which face the particle is closest to
+    // set guess as max cell dimension
+
+    double *boxlo = domain->boxlo;
+    double *boxhi = domain->boxhi;
+    double mindist = MAX(boxhi[0]-boxlo[0],boxhi[1]-boxlo[1]);
+    if (domain->dimension == 3) mindist = MAX(boxhi[2]-boxlo[2],mindist);
+
+    // CAUTION: This won't account for particles equidistant from two
+    //          cell edges or on cell corners
+
+    int inface = -1;
+    if (fabs(x[0]-hi[0]) < mindist && v[0] > 0.0) inface = XLO;
+    if (fabs(x[0]-hi[0]) < mindist && v[0] < 0.0) inface = XHI;
+    if (fabs(x[1]-lo[1]) < mindist && v[1] > 0.0) inface = YLO;
+    if (fabs(x[1]-hi[1]) < mindist && v[1] < 0.0) inface = YHI;
+    if (fabs(x[2]-lo[2]) < mindist && v[2] < 0.0) inface = ZLO;
+    if (fabs(x[2]-hi[2]) < mindist && v[2] < 0.0) inface = ZHI;
+    if (inface < 0) error->one(FLERR,"Cannot find cell edge");
+
+    // Heaviside function
+
+    double theta = 1.0;
+    if (inface == XLO || inface == YLO || inface == ZLO) theta = -1.0;
+
+    // update cell face quantities of interest
+    // note: face has Ngrid elements where each element contains Nface = 6 in 3D
+    // ... (4 in 2D) cell faces. For each grid cell, the values are flattend
+    // ... into a Nface x Nqoi where Nqoi is the number of quantities of interest
+
+    int ivalue = 0;
+    int i_index;
+    for (int ival = 0; ival < FACELASTSIZE; ival++) {
+      if (faceids[ival]) {
+        i_index = ivalue+inface;
+        if (ival == RHO) face[icell][i_index] += pmass;
+        else if (ival == U) face[icell][i_index] += pmass*v[0];
+        else if (ival == V) face[icell][i_index] += pmass*v[1];
+        else if (ival == W) face[icell][i_index] += pmass*v[2];
+        else if (ival == UMAG) face[icell][i_index] += pmass*fabs(v[0]);
+        else if (ival == VMAG) face[icell][i_index] += pmass*fabs(v[1]);
+        else if (ival == WMAG) face[icell][i_index] += pmass*fabs(v[2]);
+        ivalue += (DIM*2);
+      }
+    }
+
+  } // END check previous crossing
+
+  // if particle ends 
+  if (outface == INTERIOR) return;
 
   // check face the particle WILL cross
   if (frac < 1.0) {
@@ -259,7 +312,7 @@ void FixCellGrad::mid_step(int ip, int pflag, int icell, int outface, double dtr
     if (outface == XLO || outface == YLO || outface == ZLO) theta = -1.0;
 
     // update cell face quants
-    // faces follow same enum order
+    // faces follow same enum order (range from 0 -> 2*DIM-1)
     // xlo -> 0, xhi -> 1, ylo -> 2, ...
     int ivalue = 0;
     int i_index;
@@ -282,56 +335,18 @@ void FixCellGrad::mid_step(int ip, int pflag, int icell, int outface, double dtr
     double dtcell = dtremain * frac;
     for (int ival = 0; ival < CELLLASTSIZE; ival++) {
       if (cellids[ival]) {
-        if (ival == RHO_BULK) cell[icell][ivalue++] += pmass;
-        else if (ival == U_BULK) cell[icell][ivalue++] += pmass*v[0];
-        else if (ival == V_BULK) cell[icell][ivalue++] += pmass*v[1];
-        else if (ival == W_BULK) cell[icell][ivalue++] += pmass*v[2];
+        if (ival == RHO_BULK) cell[icell][ivalue++] += pmass*dtin;
+        else if (ival == U_BULK) cell[icell][ivalue++] += pmass*v[0]*dtin;
+        else if (ival == V_BULK) cell[icell][ivalue++] += pmass*v[1]*dtin;
+        else if (ival == W_BULK) cell[icell][ivalue++] += pmass*v[2]*dtin;
         else if (ival == UVQSQ_BULK)
           cell[icell][ivalue++] +=
-            pmass*(v[0]*v[0]+v[1]*v[1]+v[2]*v[2]);
+            pmass*(v[0]*v[0]+v[1]*v[1]+v[2]*v[2])*dtin;
       }
     } // END for cell values
 
   } // END check future crossing
 
-  // check history if particle HAS crossed a cell face
-  // also considers any new particles created due to fix_emit
-  if (particles[i].dtremain < dt || pflag == PINSERT) {
-
-    // find which face the particle is closest to
-    double mindist;
-    int inface;
-
-    inface = XLO;
-    mindist = fabs(x[0] - lo[0]);
-    if (fabs(x[0]-hi[0]) < mindist) inface = XHI;
-    if (fabs(x[1]-lo[1]) < mindist) inface = YLO;
-    if (fabs(x[1]-hi[1]) < mindist) inface = YHI;
-    if (fabs(x[2]-lo[2]) < mindist) inface = ZLO;
-    if (fabs(x[2]-hi[2]) < mindist) inface = ZHI;
-
-    // heaviside function
-    double theta = 1.0;
-    if (inface == XLO || inface == YLO || inface == ZLO) theta = -1.0;
-
-    // update cell face quants
-    int ivalue = 0;
-    int i_index;
-    for (int ival = 0; ival < FACELASTSIZE; ival++) {
-      if (faceids[ival]) {
-        i_index = ivalue+inface;
-        if (ival == RHO) face[icell][i_index] += pmass;
-        else if (ival == U) face[icell][i_index] += pmass*v[0];
-        else if (ival == V) face[icell][i_index] += pmass*v[1];
-        else if (ival == W) face[icell][i_index] += pmass*v[2];
-        else if (ival == UMAG) face[icell][i_index] += pmass*fabs(v[0]);
-        else if (ival == VMAG) face[icell][i_index] += pmass*fabs(v[1]);
-        else if (ival == WMAG) face[icell][i_index] += pmass*fabs(v[2]);
-        ivalue += (DIM*2);
-      }
-    }
-
-  } // END check previous crossing
 }
 
 /* ----------------------------------------------------------------------
@@ -341,6 +356,6 @@ void FixCellGrad::mid_step(int ip, int pflag, int icell, int outface, double dtr
 double FixCellGrad::memory_usage()
 {
   double bytes = 0.0;
-  //bytes += maxgrid*3 * sizeof(double);    // vcom
+  //bytes += maxgrid*3 * sizeof(double);
   return bytes;
 }

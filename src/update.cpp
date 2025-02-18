@@ -570,7 +570,7 @@ template < int DIM, int SURF, int OPT > void Update::move()
             continue;
           }
         }
-      }
+      } // END of optimized move
 
       particles[i].flag = PKEEP;
       icell = particles[i].icell;
@@ -1016,7 +1016,19 @@ template < int DIM, int SURF, int OPT > void Update::move()
             }
 
           } // END of if test for any surfs in this cell
+
         } // END of code specific to surfaces
+
+        // update face and cell quantites for the fixes
+        if (fixflag) {
+          Fix *f = modify->fix[ifix];
+          if (cflag) {
+            if (ipart)
+              f->mid_step(i,pflag,icell,outface,dtremain,frac);
+            if (jpart)
+              f->mid_step(i,pflag,icell,outface,dtremain,frac);
+          } else f->mid_step(i,pflag,icell,outface,dtremain,frac);
+        }
 
         // break from advection loop if discarding particle
 
@@ -1049,101 +1061,6 @@ template < int DIM, int SURF, int OPT > void Update::move()
           if (cells[icell].proc != me) particles[i].flag = PDONE;
           break;
         }
-
-        // update face and cell quantites for the fixes
-        // loops breaks above if outface is interior
-        if (fixflag) {
-
-          // get particle mass
-          /*int isp = particle[i].species;
-          double pmass = particle->species[isp].mass;
-
-          // grab the per-grid custom arrays
-          double *cell = grid->edarray[particle->ewhich[index_cell]];
-          double *face = grid->edarray[particle->ewhich[index_face]];*/
-
-          // grab the requisite id list
-          Fix *f = modify->fix[ifix];
-          f->mid_step(i,pflag,icell,outface,dtremain,frac);
-          
-          /*int *faceids = f->face;
-          int *cellids = f->cell;
-
-          // update bulk properties in cell
-          // consider residence time
-          double dtcell;
-          dtcell = dtremain * frac;
-          cell[icell][0] += mass*dtin;
-          cell[icell][1] += mass*v[0]*dtin;
-          cell[icell][2] += mass*v[1]*dtin;
-          cell[icell][3] += mass*v[2]*dtin;
-
-          // check face the particle WILL cross
-          if (frac < 1.0) {
-
-            // heaviside function
-            double theta = 1.0;
-            if (outface == XLO || outface == YLO || outface == ZLO) theta = -1.0;
-
-            // update cell face quants
-            // faces follow same enum order
-            // xlo -> 0, xhi -> 1, ylo -> 2, ...
-            int ivalue = 0;
-            int i_index;
-            for (int ival = 0; ival < FACELASTSIZE; ival++) {
-              if (faceids[ival]) {
-                i_index = ivalue+outface;
-                if (ival == RHO) face[icell][i_index] += pmass;
-                else if (ival == U) face[icell][i_index] += pmass*v[0];
-                else if (ival == V) face[icell][i_index] += pmass*v[1];
-                else if (ival == W) face[icell][i_index] += pmass*v[2];
-                else if (ival == UMAG) face[icell][i_index] += pmass*fabs(v[0]);
-                else if (ival == VMAG) face[icell][i_index] += pmass*fabs(v[1]);
-                else if (ival == WMAG) face[icell][i_index] += pmass*fabs(v[2]);
-                ivalue += (DIM*2);
-              }
-            }
-          } // END check future crossing
-
-          // check history if particle HAS crossed a cell face
-          // also considers any new particles created due to fix_emit
-          if (particles[i].dtremain < dt || pflag == PINSERT) {
-
-            // find which face the particle is closest to
-            double mindist;
-            int inface;
-
-            inface = XLO;
-            mindist = fabs(x[0] - lo[0]);
-            if (fabs(x[0]-hi[0]) < mindist) inface = XHI;
-            if (fabs(x[1]-lo[1]) < mindist) inface = YLO;
-            if (fabs(x[1]-hi[1]) < mindist) inface = YHI;
-            if (fabs(x[2]-lo[2]) < mindist) inface = ZLO;
-            if (fabs(x[2]-hi[2]) < mindist) inface = ZHI;
-
-            // heaviside function
-            double theta = 1.0;
-            if (inface == XLO || inface == YLO || inface == ZLO) theta = -1.0;
-
-            // update cell face quants
-            int ivalue = 0;
-            int i_index;
-            for (int ival = 0; ival < FACELASTSIZE; ival++) {
-              if (faceids[ival]) {
-                i_index = ivalue+inface;
-                if (ival == RHO) face[icell][i_index] += pmass;
-                else if (ival == U) face[icell][i_index] += pmass*v[0];
-                else if (ival == V) face[icell][i_index] += pmass*v[1];
-                else if (ival == W) face[icell][i_index] += pmass*v[2];
-                else if (ival == UMAG) face[icell][i_index] += pmass*fabs(v[0]);
-                else if (ival == VMAG) face[icell][i_index] += pmass*fabs(v[1]);
-                else if (ival == WMAG) face[icell][i_index] += pmass*fabs(v[2]);
-                ivalue += (DIM*2);
-              }
-            }
-          } // END check previous crossing */
-
-        } // END of fix flag
 
         // particle crosses cell face
         // decrement dtremain in case particle is passed to another proc

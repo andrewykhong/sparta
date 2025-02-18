@@ -33,6 +33,8 @@ class FixCellGrad : public Fix {
   int setmask();
   void init();
   void mid_step(int, int, int, int, double, double);
+  void mid_step_surf(int, int, int, int, double, double); // surf on cell edge
+  void mid_step_internal_surf(int, int, int, int, double, double); 
   void end_of_step();
   double memory_usage();
 
