@@ -47,6 +47,7 @@ class FixCellGrad : public Fix {
 
  protected:
 
+  int dim;
   double T_interval; //time interval for sampling crossings
   int maxgrid;
   int nevery;

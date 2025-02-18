@@ -1020,13 +1020,14 @@ template < int DIM, int SURF, int OPT > void Update::move()
         } // END of code specific to surfaces
 
         // update face and cell quantites for the fixes
-        if (fixflag) {
-          Fix *f = modify->fix[ifix];
+        if (fix_out_flag) {
+          Fix *f = modify->fix[ioutfix];
           if (cflag) {
-            if (ipart)
-              f->mid_step(i,pflag,icell,outface,dtremain,frac);
-            if (jpart)
-              f->mid_step(i,pflag,icell,outface,dtremain,frac);
+            ipart; // TODO :temp
+            //if (ipart)
+            //  f->mid_step(i,pflag,icell,outface,dtremain,frac);
+            //if (jpart)
+            //  f->mid_step(i,pflag,icell,outface,dtremain,frac);
           } else f->mid_step(i,pflag,icell,outface,dtremain,frac);
         }
 

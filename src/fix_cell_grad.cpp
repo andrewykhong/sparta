@@ -195,8 +195,8 @@ int FixCellGrad::setmask()
 
 void FixCellGrad::init()
 {
+  dim = domain->dimension;  
   return;
-  //tprefactor = update->mvv2e / (3.0*update->boltz);
 }
 
 /* ---------------------------------------------------------------------- */
@@ -224,27 +224,33 @@ void FixCellGrad::end_of_step()
 /* ----------------------------------------------------------------------
    records crossing events
 ------------------------------------------------------------------------- */
-// ip - particle index
-// pflag - type of particle (can differ from new part flag; use one from update)
-// icell - which grid cell 
-// outface - which face particle is exitting to
-// dtremain - how much time left to move
-// frac - fraction of dtremain particle is in cell icell
+
 
 void FixCellGrad::mid_step(int ip, int pflag, int icell, int outface, double dtremain, double frac)
 {
 
   Particle::OnePart *particles = particle->particles;
+  Grid::ChildCell *cells = grid->cells;
 
   // get particle mass
 
-  int isp = particles[ip].species;
+  int isp = particles[ip].ispecies;
   double pmass = particle->species[isp].mass;
 
   // grab the per-grid custom arrays
 
-  double *cell = grid->edarray[particle->ewhich[cellbulkindex]];
-  double *face = grid->edarray[particle->ewhich[cellfaceindex]];
+  double **cell = grid->edarray[particle->ewhich[cellbulkindex]];
+  double **face = grid->edarray[particle->ewhich[cellfaceindex]];
+
+  // particle props
+
+  double *x = particles[ip].x;
+  double *v = particles[ip].v;
+
+  // cell props
+
+  double *lo = cells[icell].lo;
+  double *hi = cells[icell].hi;
 
   // check history if particle HAS crossed a cell face
   // also considers any new particles created due to fix_emit
@@ -295,7 +301,7 @@ void FixCellGrad::mid_step(int ip, int pflag, int icell, int outface, double dtr
         else if (ival == UMAG) face[icell][i_index] += pmass*fabs(v[0]);
         else if (ival == VMAG) face[icell][i_index] += pmass*fabs(v[1]);
         else if (ival == WMAG) face[icell][i_index] += pmass*fabs(v[2]);
-        ivalue += (DIM*2);
+        ivalue += (dim*2);
       }
     }
 
@@ -326,7 +332,7 @@ void FixCellGrad::mid_step(int ip, int pflag, int icell, int outface, double dtr
         else if (ival == UMAG) face[icell][i_index] += pmass*fabs(v[0]);
         else if (ival == VMAG) face[icell][i_index] += pmass*fabs(v[1]);
         else if (ival == WMAG) face[icell][i_index] += pmass*fabs(v[2]);
-        ivalue += (DIM*2);
+        ivalue += (dim*2);
       }
     } // END for face values
 
@@ -335,13 +341,13 @@ void FixCellGrad::mid_step(int ip, int pflag, int icell, int outface, double dtr
     double dtcell = dtremain * frac;
     for (int ival = 0; ival < CELLLASTSIZE; ival++) {
       if (cellids[ival]) {
-        if (ival == RHO_BULK) cell[icell][ivalue++] += pmass*dtin;
-        else if (ival == U_BULK) cell[icell][ivalue++] += pmass*v[0]*dtin;
-        else if (ival == V_BULK) cell[icell][ivalue++] += pmass*v[1]*dtin;
-        else if (ival == W_BULK) cell[icell][ivalue++] += pmass*v[2]*dtin;
-        else if (ival == UVQSQ_BULK)
+        if (ival == RHO_BULK) cell[icell][ivalue++] += pmass*dtcell;
+        else if (ival == U_BULK) cell[icell][ivalue++] += pmass*v[0]*dtcell;
+        else if (ival == V_BULK) cell[icell][ivalue++] += pmass*v[1]*dtcell;
+        else if (ival == W_BULK) cell[icell][ivalue++] += pmass*v[2]*dtcell;
+        else if (ival == UVWSQ_BULK)
           cell[icell][ivalue++] +=
-            pmass*(v[0]*v[0]+v[1]*v[1]+v[2]*v[2])*dtin;
+            pmass*(v[0]*v[0]+v[1]*v[1]+v[2]*v[2])*dtcell;
       }
     } // END for cell values
 

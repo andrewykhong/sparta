@@ -80,6 +80,7 @@ class Fix : protected Pointers {
   virtual void setup() {}
 
   virtual void start_of_step() {}
+  virtual void mid_step(int, int, int, int, double, double) {}
   virtual void end_of_step() {}
   virtual void post_run() {}
   virtual void update_custom(int, double, double, double, double *) {}
