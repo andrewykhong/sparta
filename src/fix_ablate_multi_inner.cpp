@@ -199,7 +199,7 @@ void FixAblate::decrement_sphere()
 
   double vol_fac;
   if (dim == 2) vol_fac = 3.0;
-  else vol_fac = 4.0;
+  else vol_fac = 3.0;
 
   for (int icell = 0; icell < nglocal; icell++) {
     if (!(cinfo[icell].mask & groupbit)) continue;
