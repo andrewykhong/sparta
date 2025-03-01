@@ -60,11 +60,9 @@ Mixture::Mixture(SPARTA *sparta, char *userid) : Pointers(sparta)
   temp_vib_flag = 0;
 
   fraction = NULL;
-  fraction_wt = NULL;
   fraction_user = NULL;
   fraction_flag = NULL;
   cummulative = NULL;
-  cummulative_wt = NULL;
 
   ngroup = maxgroup = 0;
   groups = NULL;
@@ -89,11 +87,9 @@ Mixture::~Mixture()
 
   memory->destroy(species);
   memory->destroy(fraction);
-  memory->destroy(fraction_wt);
   memory->destroy(fraction_user);
   memory->destroy(fraction_flag);
   memory->destroy(cummulative);
-  memory->destroy(cummulative_wt);
 
   delete_groups();
   memory->sfree(groups);
@@ -229,10 +225,6 @@ void Mixture::init()
     error->all(FLERR,str);
   }
 
-  // compute weighted fractions
-
-  init_fraction_wt(fraction_flag,fraction_user,fraction_wt,cummulative_wt);
-
   // vscale = factor to scale Gaussian unit variance by
   //          to get thermal distribution of velocities
   // per-species value since includes species mass
@@ -306,51 +298,6 @@ int Mixture::init_fraction(int *fflag, double *fuser, double *f, double *c)
     if (i) c[i] = c[i-1] + f[i];
     else c[i] = f[i];
   }
-
-  if (nspecies) c[nspecies-1] = 1.0;
-  return 0;
-}
-
-/* ----------------------------------------------------------------------
-   same as above but fractions and cummulative of simulators
-------------------------------------------------------------------------- */
-
-int Mixture::init_fraction_wt(int *fflag, double *fuser, double *f, double *c)
-{
-  double sum = 0.0; // for recalculating fractions based on simulator count
-  double sum_f = 0.0;
-  int nimplicit = 0;
-  int ispecies;
-  for (int i = 0; i < nspecies; i++) {
-    ispecies = species[i];
-    if (fflag[i]) {
-      sum += fuser[i]*particle->species[ispecies].specwt;
-      sum_f += fuser[i];
-    } else nimplicit++;
-  }
-
-  double remain = (1.0 - sum_f) / nimplicit;
-
-  // add missing species to sum
-
-  for (int i = 0; i < nspecies; i++) {
-    ispecies = species[i];
-    if (!fflag[i]) sum += remain*particle->species[ispecies].specwt;
-  }
-
-  // set new fractions and normalize by weighted sum
-  // also compute cumulatuve function
-
-  for (int i = 0; i < nspecies; i++) {
-    ispecies = species[i];
-    if (fflag[i])
-      f[i] = fuser[i]*particle->species[ispecies].specwt/sum;
-    else
-      f[i] = remain*particle->species[ispecies].specwt/sum;
-    if (i) c[i] = c[i-1] + f[i];
-    else c[i] = f[i];
-  }
-
   if (nspecies) c[nspecies-1] = 1.0;
   return 0;
 }
@@ -618,13 +565,11 @@ void Mixture::allocate()
   maxspecies += DELTA;
 
   memory->grow(species,maxspecies,"mixture:species");
-  memory->grow(fraction,maxspecies,"mixture:fraction");
-  memory->grow(fraction_wt,maxspecies,"mixture:fraction_wt");
+  memory->grow(fraction,maxspecies,"mixture:species");
   memory->grow(fraction_flag,maxspecies,"mixture:fraction_flag");
   memory->grow(fraction_user,maxspecies,"mixture:fraction_user");
   memory->grow(cummulative,maxspecies,"mixture:cummulative");
-  memory->grow(cummulative_wt,maxspecies,"mixture:cummulative_wt");
-  memory->grow(mix2group,maxspecies,"mixture:mix2group");
+  memory->grow(mix2group,maxspecies,"mixture:cummulative");
   memory->grow(vscale,maxspecies,"mixture:vscale");
   memory->grow(active,maxspecies,"mixture:active");
 

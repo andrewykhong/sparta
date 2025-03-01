@@ -59,7 +59,6 @@ Particle::Particle(SPARTA *sparta) : Pointers(sparta)
   nspecies = maxspecies = 0;
   species = NULL;
   maxvibmode = 0;
-  specwtflag = 0;
 
   //maxgrid = 0;
   //cellcount = NULL;
@@ -648,10 +647,7 @@ int Particle::add_particle(int id, int ispecies, int icell,
   p->flag = PKEEP;
 
   //p->dtremain = 0.0;    not needed due to memset in grow() ??
-
-  // species dependent weight (default is 1.0)
-  if (specwtflag) p->weight = species[ispecies].specwt;
-  else p->weight = 1.0;
+  //p->weight = 1.0;      not needed due to memset in grow() ??
 
   if (ncustom) zero_custom(nlocal);
 

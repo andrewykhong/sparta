@@ -173,7 +173,6 @@ void ComputeEFluxGrid::compute_per_grid()
   int i,j,k,m,ispecies,igroup,icell;
   double mass;
   double *v,*vec;
-  double pweight;
 
   // zero all accumulators - could do this with memset()
 
@@ -192,10 +191,7 @@ void ComputeEFluxGrid::compute_per_grid()
     icell = particles[i].icell;
     if (!(cinfo[icell].mask & groupbit)) continue;
 
-    if (particle->specwtflag) pweight = species[ispecies].specwt;
-    else pweight = 1.0;
-
-    mass = species[ispecies].mass*pweight;
+    mass = species[ispecies].mass;
     v = particles[i].v;
 
     vec = tally[icell];
