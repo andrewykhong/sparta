@@ -32,9 +32,7 @@ class FixCellGrad : public Fix {
   virtual ~FixCellGrad();
   int setmask();
   void init();
-  void face_flux_premove(Particle::OnePart *, int);
-  void update_cell_bulk(Particle::OnePart *, int, double);
-  void face_flux_postmove(Particle::OnePart *, int, int);
+  void during_move(Particle::OnePart *, int, int, int, double);
   void end_of_step();
   //double memory_usage();
 
@@ -54,6 +52,10 @@ class FixCellGrad : public Fix {
 
   int *direction; // for end_of_step to direct how to compute outputs
   int *quantity; // what to accumulate
+
+  void face_flux_premove(Particle::OnePart *, int);
+  void update_cell_bulk(Particle::OnePart *, int, double);
+  void face_flux_postmove(Particle::OnePart *, int, int);
 
   void reallocate();
 

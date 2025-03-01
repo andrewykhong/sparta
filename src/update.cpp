@@ -461,7 +461,7 @@ template < int DIM, int SURF, int OPT > void Update::move()
 
       // record fluxes in particle's history
       if (fix_out_flag)
-        f->face_flux_premove(&particles[i],icell);
+        f->during_move(&particles[i],0,icell,0,0);
 
       // received from another proc and move is done
       // if first iteration, PDONE is from a previous step,
@@ -591,7 +591,7 @@ template < int DIM, int SURF, int OPT > void Update::move()
         if (fix_out_flag) {
           if (first) first = 0;
           else
-            f->face_flux_premove(&particles[i],icell);
+            f->during_move(&particles[i],0,icell,0,0);
         }
 
 
@@ -1048,7 +1048,7 @@ template < int DIM, int SURF, int OPT > void Update::move()
 
         if (outface == INTERIOR) {
           if (fix_out_flag)
-            f->update_cell_bulk(&particles[i],icell,dtremain);
+            f->during_move(&particles[i],1,icell,0,dtremain);
 
           if (DIM == 1) axi_remap(xnew,v);
           x[0] = xnew[0];
@@ -1106,7 +1106,7 @@ template < int DIM, int SURF, int OPT > void Update::move()
 
         // record bulk
         if (fix_out_flag)
-          f->update_cell_bulk(&particles[i],icell,dtremain);
+          f->during_move(&particles[i],1,icell,0,dtremain);
 
         if (nflag == NCHILD) {
           icell = neigh[outface];
@@ -1134,12 +1134,12 @@ template < int DIM, int SURF, int OPT > void Update::move()
           }
 
           if (fix_out_flag)
-            f->face_flux_postmove(&particles[i],outface,icell_original);
+            f->during_move(&particles[i],2,icell_original,outface,0.0);
 
         } else if (nflag == NUNKNOWN) {
           icell = -1;
           if (fix_out_flag)
-            f->face_flux_postmove(&particles[i],outface,icell_original);
+            f->during_move(&particles[i],2,icell_original,outface,0.0);
 
         // neighbor cell is global boundary
         // tally boundary stats if requested using iorig
@@ -1159,7 +1159,7 @@ template < int DIM, int SURF, int OPT > void Update::move()
             memcpy(&iorig,&particles[i],sizeof(Particle::OnePart));
 
           if (fix_out_flag)
-            f->face_flux_postmove(&particles[i],outface,icell_original);
+            f->during_move(&particles[i],2,icell_original,outface,0.0);
 
           bflag = domain->collide(ipart,outface,icell,xnew,dtremain,
                                   jpart,reaction);

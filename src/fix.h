@@ -80,16 +80,13 @@ class Fix : protected Pointers {
   virtual void setup() {}
 
   virtual void start_of_step() {}
+  virtual void during_move(Particle::OnePart *, int, int, int, double) {}
   virtual void end_of_step() {}
   virtual void post_run() {}
   virtual void update_custom(int, double, double, double, double *) {}
   virtual void gas_react(int) {}
   virtual void surf_react(Particle::OnePart *, int &, int &) {}
   virtual void compute_field() {}
-
-  virtual void face_flux_premove(Particle::OnePart *, int) {}
-  virtual void update_cell_bulk(Particle::OnePart *, int, double) {}
-  virtual void face_flux_postmove(Particle::OnePart *, int, int) {}
 
   virtual int pack_grid_one(int, char *, int) {return 0;}
   virtual int unpack_grid_one(int, char *) {return 0;}

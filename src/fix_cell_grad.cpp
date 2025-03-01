@@ -225,6 +225,17 @@ void FixCellGrad::end_of_step()
   return;
 }
 
+/* ---------------------------------------------------------------------- */
+
+void FixCellGrad::during_move(Particle::OnePart *ipart, int type, int icell, int outface, double dtremain)
+{
+  if (type == 0) face_flux_premove(ipart,icell);
+  else if (type == 1) update_cell_bulk(ipart, icell, dtremain);
+  else if (type == 2) face_flux_postmove(ipart, outface, icell);
+  else error->all(FLERR,"Type not recognized");
+}
+
+
 /* ----------------------------------------------------------------------
    records crossing events in past
 ------------------------------------------------------------------------- */
