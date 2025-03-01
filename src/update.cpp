@@ -175,15 +175,6 @@ void Update::init()
     }
   }
 
-  if (fix_out_flag) {
-    ioutfix = modify->find_fix(outID);
-
-    // per-grid quantities for cell center and face quantities
-    indexcell = grid->find_custom((char *) "cellbulk");
-    indexface = grid->find_custom((char *) "cellface");
-    
-  }
-
   // choose the appropriate move method
 
   if (domain->dimension == 3) {
@@ -391,6 +382,8 @@ template < int DIM, int SURF, int OPT > void Update::move()
   Particle::OnePart iorig;
   Particle::OnePart *particles;
   Particle::OnePart *ipart,*jpart;
+  Fix *f;
+  if (fix_out_flag) f = modify->fix[ioutfix];
 
   if (OPT) {
     boxlo = domain->boxlo;
@@ -465,6 +458,10 @@ template < int DIM, int SURF, int OPT > void Update::move()
 
     for (int i = pstart; i < pstop; i++) {
       pflag = particles[i].flag;
+
+      // record fluxes in particle's history
+      if (fix_out_flag)
+        f->face_flux_premove(&particles[i],icell);
 
       // received from another proc and move is done
       // if first iteration, PDONE is from a previous step,
@@ -585,7 +582,18 @@ template < int DIM, int SURF, int OPT > void Update::move()
 
       //int iterate = 0;
 
+      int first = 1;
+
       while (1) {
+
+        // update face and cell quantites for the fixes
+        // only if not first iteration (handled above)
+        if (fix_out_flag) {
+          if (first) first = 0;
+          else
+            f->face_flux_premove(&particles[i],icell);
+        }
+
 
 #ifdef MOVE_DEBUG
         if (DIM == 3) {
@@ -1019,19 +1027,10 @@ template < int DIM, int SURF, int OPT > void Update::move()
 
         } // END of code specific to surfaces
 
-        // update face and cell quantites for the fixes
-        if (fix_out_flag) {
-          Fix *f = modify->fix[ioutfix];
-          if (cflag) {
-            ipart; // TODO :temp
-            //if (ipart)
-            //  f->mid_step(i,pflag,icell,outface,dtremain,frac);
-            //if (jpart)
-            //  f->mid_step(i,pflag,icell,outface,dtremain,frac);
-          } else f->mid_step(i,pflag,icell,outface,dtremain,frac);
-        }
+        // TODO : Add cell flux with surfaces here!
 
         // break from advection loop if discarding particle
+        // PDISCARD set up to here only of surfaces in cell
 
         if (particles[i].flag == PDISCARD) break;
 
@@ -1048,6 +1047,9 @@ template < int DIM, int SURF, int OPT > void Update::move()
         //   flag as PDONE so new proc won't move it more on this step
 
         if (outface == INTERIOR) {
+          if (fix_out_flag)
+            f->update_cell_bulk(&particles[i],icell,dtremain);
+
           if (DIM == 1) axi_remap(xnew,v);
           x[0] = xnew[0];
           x[1] = xnew[1];
@@ -1102,6 +1104,10 @@ template < int DIM, int SURF, int OPT > void Update::move()
         nflag = grid->neigh_decode(nmask,outface);
         icell_original = icell;
 
+        // record bulk
+        if (fix_out_flag)
+          f->update_cell_bulk(&particles[i],icell,dtremain);
+
         if (nflag == NCHILD) {
           icell = neigh[outface];
           if (DIM == 3 && SURF) {
@@ -1126,7 +1132,14 @@ template < int DIM, int SURF, int OPT > void Update::move()
                 icell = split2d(icell,x);
             }
           }
-        } else if (nflag == NUNKNOWN) icell = -1;
+
+          if (fix_out_flag)
+            f->face_flux_postmove(&particles[i],outface,icell_original);
+
+        } else if (nflag == NUNKNOWN) {
+          icell = -1;
+          if (fix_out_flag)
+            f->face_flux_postmove(&particles[i],outface,icell_original);
 
         // neighbor cell is global boundary
         // tally boundary stats if requested using iorig
@@ -1139,11 +1152,14 @@ template < int DIM, int SURF, int OPT > void Update::move()
         // PERIODIC: new cell via same logic as above for child/parent/unknown
         // OTHER: reflected particle stays in same grid cell
 
-        else {
+        } else {
           ipart = &particles[i];
 
           if (nboundary_tally)
             memcpy(&iorig,&particles[i],sizeof(Particle::OnePart));
+
+          if (fix_out_flag)
+            f->face_flux_postmove(&particles[i],outface,icell_original);
 
           bflag = domain->collide(ipart,outface,icell,xnew,dtremain,
                                   jpart,reaction);
@@ -1811,6 +1827,10 @@ void Update::global(int narg, char **arg)
       int n = strlen(arg[iarg+1]);
       char *outID = new char[n];
       strcpy(outID,&arg[iarg+1][2]);
+
+      ioutfix = modify->find_fix(outID);      
+      if (ioutfix < 0)
+        error->all(FLERR,"Fix not found in global fix");
 
       iarg += 2;
     } else error->all(FLERR,"Illegal global command");

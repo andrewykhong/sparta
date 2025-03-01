@@ -32,8 +32,6 @@
 #include "memory.h"
 #include "error.h"
 
-#include "fix_solid.h"
-
 using namespace SPARTA_NS;
 using namespace MathConst;
 
@@ -93,7 +91,6 @@ void CreateParticles::command(int narg, char **arg)
   int globalflag = 0;
   twopass = 0;
   weight = 0;
-  ifix = -1;
   region = NULL;
   speciesflag = densflag = velflag = tempflag = 0;
   sstr = sxstr = systr = szstr = NULL;

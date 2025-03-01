@@ -33,16 +33,18 @@ enum{INT,DOUBLE};                      // several files
 
 enum{RHO,U,V,W,UMAG,VMAG,WMAG,FACELASTSIZE};
 
-// cell bulk quantitis
+// for outputs
 
-enum{RHO_BULK,U_BULK,V_BULK,W_BULK,UVWSQ_BULK,CELLLASTSIZE};
+enum{DX,DY,DZ,SUM};
+
+#define MAXOUTPUTS 12
 
 /* ---------------------------------------------------------------------- */
 
 FixCellGrad::FixCellGrad(SPARTA *sparta, int narg, char **arg) :
   Fix(sparta, narg, arg)
 {
-  if (narg < 5) error->all(FLERR,"Illegal fix cell/grad command");
+  if (narg < 3) error->all(FLERR,"Illegal fix cell/grad command");
 
   // how frequently to update cell fluxes
   nevery = atoi(arg[2]);
@@ -50,108 +52,73 @@ FixCellGrad::FixCellGrad(SPARTA *sparta, int narg, char **arg) :
   T_interval = nevery * update->dt;
 
   // time average the quantities?
-  int iarg = 3;
-  aveflag = 0;
-  if (strcmp(arg[iarg],"ave") == 0) {
-    aveflag = 1;
+
+  if (strcmp(arg[3],"ave") != 0) 
+    error->all(FLERR,"Expected 'ave' keyword\n");
+  if (strcmp(arg[4],"running") == 0) aveflag = 1;
+  else if (strcmp(arg[4],"one") == 0) aveflag = 0;
+  else error->all(FLERR,"Unexpected input in fix cell/grad command");
+
+  // number of quantities
+
+  nvalues = atoi(arg[5]);
+
+  // create direction and quantity
+
+  memory->create(direction,nvalues,"fix/cell/grad:direction");
+  memory->create(quantity,nvalues,"fix/cell/grad:quantity");
+
+  // only need to track lower value (will handle both)
+  int iarg = 6;
+  size_per_grid_cols = 0; // number of face values
+  while (iarg < narg) {
+    if (strcmp(arg[iarg],"u_x") == 0) {
+      direction[iarg-6] = XLO;
+      quantity[iarg-6] = U;
+    } else if (strcmp(arg[iarg],"u_y") == 0) {
+      direction[iarg-6] = YLO;
+      quantity[iarg-6] = U;
+    } else if (strcmp(arg[iarg],"u_z") == 0) {
+      direction[iarg-6] = ZLO;
+      quantity[iarg-6] = U;
+    } else if (strcmp(arg[iarg],"v_x") == 0) {
+      direction[iarg-6] = XLO;
+      quantity[iarg-6] = V;
+    } else if (strcmp(arg[iarg],"v_y") == 0) {
+      direction[iarg-6] = YLO;
+      quantity[iarg-6] = V;
+    } else if (strcmp(arg[iarg],"v_z") == 0) {
+      direction[iarg-6] = ZLO;
+      quantity[iarg-6] = V;
+    } else if (strcmp(arg[iarg],"w_x") == 0) {
+      direction[iarg-6] = XLO;
+      quantity[iarg-6] = U;
+    } else if (strcmp(arg[iarg],"w_y") == 0) {
+      direction[iarg-6] = YLO;
+      quantity[iarg-6] = V;
+    } else if (strcmp(arg[iarg],"w_z") == 0) {
+      direction[iarg-6] = ZLO;
+      quantity[iarg-6] = W;
+    } else error->all(FLERR,"Invalid fix cell/grad command");
+
+    size_per_grid_cols++;
     iarg++;
   }
 
-  // specify pairs
-  // first is the quantity (velocity, temperature, density, etc.)
-  // second is the direction (x,y,z)
-  
-  // keep track which face values to find 
-  faceids = new int[FACELASTSIZE];
-  for (int i = 0; i < FACELASTSIZE; i++) faceids[i] = 0;
+  if (nvalues != size_per_grid_cols) error->all(FLERR,"Should be same");
 
-  // keep track which cell values to find 
-  cellids = new int[CELLLASTSIZE];
-  for (int i = 0; i < CELLLASTSIZE; i++) cellids[i] = 0;
-
-  xface = yface = zface = 0.0; // which cell faces need to be computed
-  while (iarg < narg) {
-    if (strcmp(arg[iarg],"rho_x") == 0) {
-      faceids[RHO] = 1;
-      xface = 1;
-    } else if (strcmp(arg[iarg],"rho_y") == 0) {
-      faceids[RHO] = 1;
-      yface = 1;
-    } else if (strcmp(arg[iarg],"rho_z") == 0) {
-      faceids[RHO] = 1;
-      zface = 1;
-    } else if (strcmp(arg[iarg],"u_x") == 0) {
-      faceids[U] = 1;
-      xface = 1;
-      cellids[RHO_BULK] = 1;
-      cellids[U_BULK] = 1;
-    } else if (strcmp(arg[iarg],"u_y") == 0) {
-      faceids[U] = 1;
-      faceids[V] = 1;
-      yface = 1;
-      cellids[RHO_BULK] = 1;
-      cellids[U_BULK] = 1;
-    } else if (strcmp(arg[iarg],"u_z") == 0) {
-      faceids[U] = 1;
-      faceids[W] = 1;
-      zface = 1;
-      cellids[RHO_BULK] = 1;
-      cellids[U_BULK] = 1;
-    } else if (strcmp(arg[iarg],"v_x") == 0) {
-      faceids[V] = 1;
-      faceids[U] = 1;
-      xface = 1;
-      cellids[RHO_BULK] = 1;
-      cellids[V_BULK] = 1;
-    } else if (strcmp(arg[iarg],"v_y") == 0) {
-      faceids[V] = 1;
-      yface = 1;
-      cellids[RHO_BULK] = 1;
-      cellids[V_BULK] = 1;
-    } else if (strcmp(arg[iarg],"v_z") == 0) {
-      faceids[V] = 1;
-      faceids[W] = 1;
-      zface = 1;
-      cellids[RHO_BULK] = 1;
-      cellids[V_BULK] = 1;
-    } else if (strcmp(arg[iarg],"w_x") == 0) {
-      faceids[W] = 1;
-      faceids[U] = 1;
-      xface = 1;
-      cellids[RHO_BULK] = 1;
-      cellids[W_BULK] = 1;
-    } else if (strcmp(arg[iarg],"w_y") == 0) {
-      faceids[W] = 1;
-      faceids[V] = 1;
-      yface = 1;
-      cellids[RHO_BULK] = 1;
-      cellids[W_BULK] = 1;
-    } else if (strcmp(arg[iarg],"w_z") == 0) {
-      faceids[W] = 1;
-      zface = 1;
-      cellids[RHO_BULK] = 1;
-      cellids[W_BULK] = 1;
-    } else error->all(FLERR,"Invalid fix temp/rescale command");
-
-    iarg += 2;
-  }
+  // for outputting per-grid quantities
+  per_grid_flag = 1;
+  per_grid_freq = 1;
+  nglocal = 0;
+  array_grid = NULL;
 
   // count number of bulk and face values per-grid cell
 
-  int nfacevalues = 0;
-  for (int i = 0; i < FACELASTSIZE; i++)
-    if (faceids[i]) nfacevalues++;
-
-  int ncellvalues = 0;
-  for (int i = 0; i < CELLLASTSIZE; i++)
-    if (cellids[i]) ncellvalues++;
-
-  if (nfacevalues == 0)
+  if (size_per_grid_cols == 0)
     error->one(FLERR,"No face values specified in fix cell grad");
 
   // nface = number of faces in the grid cell
-
-  int nface = domain->dimension*2; // easiest to reference if all faces tracked
 
   // store quantities in custom grid arrays
   // check if custom per-grid attribute exists
@@ -162,8 +129,12 @@ FixCellGrad::FixCellGrad(SPARTA *sparta, int narg, char **arg) :
   if (cellfaceindex >= 0 || cellbulkindex >= 0)
     error->all(FLERR,"Fix cell gradient already exists");
 
-  cellbulkindex = grid->add_custom((char *) "cellbulk", DOUBLE, ncellvalues);
-  cellfaceindex = grid->add_custom((char *) "cellface", DOUBLE, nface*nfacevalues);
+  // cell bulk tracks density and number of bulk velocities (one extra)
+  cellbulkindex = grid->add_custom((char *) "cellbulk", DOUBLE, nvalues+1);
+  // each gradients needs 2 values for numer and denom
+  // shouldn't need to do any syncronization between procs since this
+  // .. quantity is measured during move where particles are migrated
+  cellfaceindex = grid->add_custom((char *) "cellface", DOUBLE, 2*nvalues);
 
 }
 
@@ -172,6 +143,10 @@ FixCellGrad::FixCellGrad(SPARTA *sparta, int narg, char **arg) :
 FixCellGrad::~FixCellGrad()
 {
   if (copymode) return;
+
+  memory->destroy(array_grid);
+  memory->destroy(direction);
+  memory->destroy(quantity);
 
   delete [] cellids;
   delete [] faceids;
@@ -195,69 +170,102 @@ int FixCellGrad::setmask()
 
 void FixCellGrad::init()
 {
-  dim = domain->dimension;  
-  return;
+  dim = domain->dimension;
+  reallocate();
+  nsample = 0;
 }
 
 /* ---------------------------------------------------------------------- */
 
 void FixCellGrad::end_of_step()
 {
-  if (update->ntimestep % nevery) return;
-
-  // set current t_target
-
-  //double delta = update->ntimestep - update->beginstep;
-  //if (delta != 0.0) delta /= update->endstep - update->beginstep;
-  //double t_target = tstart + delta * (tstop-tstart);
-
-  // sort particles by grid cell if needed
-
-  if (!particle->sorted) particle->sort();
-
-  // 2 variants of thermostatting
-
-  //if (!aveflag) end_of_step_no_average(t_target);
-  //else end_of_step_average(t_target);
-}
-
-/* ----------------------------------------------------------------------
-   records crossing events
-------------------------------------------------------------------------- */
-
-
-void FixCellGrad::mid_step(int ip, int pflag, int icell, int outface, double dtremain, double frac)
-{
+  error->one(FLERR,"ck end of step");
 
   Particle::OnePart *particles = particle->particles;
   Grid::ChildCell *cells = grid->cells;
 
-  // get particle mass
+  reallocate();
 
-  int isp = particles[ip].ispecies;
-  double pmass = particle->species[isp].mass;
+  int ivalue;
+  double rho, vbulk, igrad, volume;
 
   // grab the per-grid custom arrays
 
-  double **cell = grid->edarray[particle->ewhich[cellbulkindex]];
-  double **face = grid->edarray[particle->ewhich[cellfaceindex]];
+  double **face = grid->edarray[grid->ewhich[cellfaceindex]];
+  double **cell = grid->edarray[grid->ewhich[cellbulkindex]];
 
-  // particle props
+  // cell geometry
 
-  double *x = particles[ip].x;
-  double *v = particles[ip].v;
+  double *lo;
+  double *hi;
 
-  // cell props
+  for (int icell = 0; icell < nglocal; icell++) {
+    if (!aveflag) {
+      for (int i = 0; i < size_per_grid_cols; i++)
+        array_grid[icell][i] = 0.0;
+      nsample = 0;
+    }
+
+    lo = cells[icell].lo;
+    hi = cells[icell].hi;
+    volume = (hi[0]-lo[0])*(hi[1]-lo[1]);
+    if (dim == 3) volume *= (hi[2]-lo[2]);
+
+    rho = cell[icell][0];
+    ivalue = 0;
+    for (int i = 0; i < size_per_grid_cols; i++) {
+      vbulk = cell[icell][i+1];
+      igrad = face[icell][ivalue] - face[icell][ivalue+1]*vbulk;
+      igrad *= rho/volume/T_interval;
+      array_grid[icell][i] = (array_grid[icell][i]*nsample+igrad)/(nsample+1);
+      ivalue += 2;
+    }
+  } // end cells
+
+  return;
+}
+
+/* ----------------------------------------------------------------------
+   records crossing events in past
+------------------------------------------------------------------------- */
+
+void FixCellGrad::face_flux_premove(Particle::OnePart *ipart, int icell)
+{
+  Particle::OnePart *particles = particle->particles;
+  Grid::ChildCell *cells = grid->cells;
+
+  // get particle attributes/properties
+
+  int isp = ipart->ispecies;
+  double pmass = particle->species[isp].mass;
+  int pflag = ipart->flag;
+  double dtremain = ipart->dtremain;
+
+  // grab the per-grid custom arrays
+
+  double **face = grid->edarray[grid->ewhich[cellfaceindex]];
+
+  // particle position/velocity
+
+  double x[3],v[3];
+  memcpy(v,ipart->v,3*sizeof(double));
+
+  // cell geometry
 
   double *lo = cells[icell].lo;
   double *hi = cells[icell].hi;
 
-  // check history if particle HAS crossed a cell face
-  // also considers any new particles created due to fix_emit
-  // if particles moving from previous iteration or inserted, the position
-  // ... should be on the cell edge
+  // check history if:
+  // 1) particle has crossed from another cell (dtremain < update->dt)
+  // ... or previously hit a boundary
+  // 2) particle emitted from face (pflag == PINSERT)
+  // 3) particle emitted from surf (pflag >= PSURF) (also includes boundaries)
+  // second part of if statement checks for dtremain == update->dt so
 
-  if (particles[ip].dtremain < update->dt || pflag == PINSERT) {
+  // note: if particle 'i' hits a surface, particle 'i' does not get 
+  // ... PSURF flag. only particle 'j' (for reactive surfaces) get this flag
+
+  if (dtremain < update->dt || pflag == PINSERT || pflag >= PSURF) {
 
     // find which face the particle is closest to
     // set guess as max cell dimension
@@ -265,18 +273,43 @@ void FixCellGrad::mid_step(int ip, int pflag, int icell, int outface, double dtr
     double *boxlo = domain->boxlo;
     double *boxhi = domain->boxhi;
     double mindist = MAX(boxhi[0]-boxlo[0],boxhi[1]-boxlo[1]);
-    if (domain->dimension == 3) mindist = MAX(boxhi[2]-boxlo[2],mindist);
+    if (dim == 3) mindist = MAX(boxhi[2]-boxlo[2],mindist);
 
     // CAUTION: This won't account for particles equidistant from two
-    //          cell edges or on cell corners
+    //          cell edges or on cell corners (small/negligible error)
 
     int inface = -1;
-    if (fabs(x[0]-hi[0]) < mindist && v[0] > 0.0) inface = XLO;
-    if (fabs(x[0]-hi[0]) < mindist && v[0] < 0.0) inface = XHI;
-    if (fabs(x[1]-lo[1]) < mindist && v[1] > 0.0) inface = YLO;
-    if (fabs(x[1]-hi[1]) < mindist && v[1] < 0.0) inface = YHI;
-    if (fabs(x[2]-lo[2]) < mindist && v[2] < 0.0) inface = ZLO;
-    if (fabs(x[2]-hi[2]) < mindist && v[2] < 0.0) inface = ZHI;
+    if (fabs(x[0]-lo[0]) < mindist && v[0] > 0.0) {
+      inface = XLO;
+      mindist = fabs(x[0]-lo[0]);
+    }
+    if (fabs(x[1]-lo[1]) < mindist && v[1] > 0.0) {
+      inface = YLO;
+      mindist = fabs(x[1]-lo[1]);
+    }
+
+    if (fabs(x[0]-hi[0]) < mindist && v[0] < 0.0) {
+      inface = XHI;
+      mindist = fabs(x[0]-hi[0]);
+    }
+    if (fabs(x[1]-hi[1]) < mindist && v[1] < 0.0) {
+      inface = YHI;
+      mindist = fabs(x[1]-hi[1]);
+    }
+
+    if (dim == 3) {
+      if (fabs(x[2]-lo[2]) < mindist && v[2] > 0.0) {
+        inface = ZLO;
+        mindist = fabs(x[2]-lo[2]);
+      }
+      if (fabs(x[2]-hi[2]) < mindist && v[2] < 0.0) {
+        inface = ZHI;
+        mindist = fabs(x[2]-hi[2]);
+      }
+    }
+
+    // error if no edge found (should never be called)
+
     if (inface < 0) error->one(FLERR,"Cannot find cell edge");
 
     // Heaviside function
@@ -290,78 +323,153 @@ void FixCellGrad::mid_step(int ip, int pflag, int icell, int outface, double dtr
     // ... into a Nface x Nqoi where Nqoi is the number of quantities of interest
 
     int ivalue = 0;
-    int i_index;
-    for (int ival = 0; ival < FACELASTSIZE; ival++) {
-      if (faceids[ival]) {
-        i_index = ivalue+inface;
-        if (ival == RHO) face[icell][i_index] += pmass;
-        else if (ival == U) face[icell][i_index] += pmass*v[0];
-        else if (ival == V) face[icell][i_index] += pmass*v[1];
-        else if (ival == W) face[icell][i_index] += pmass*v[2];
-        else if (ival == UMAG) face[icell][i_index] += pmass*fabs(v[0]);
-        else if (ival == VMAG) face[icell][i_index] += pmass*fabs(v[1]);
-        else if (ival == WMAG) face[icell][i_index] += pmass*fabs(v[2]);
-        ivalue += (dim*2);
-      }
+    double denom, numer;
+    for (int ival = 0; ival < nvalues; ival++) {
+      if (quantity[ival] == U) numer = pmass*v[0];
+      else if (quantity[ival] == V) numer = pmass*v[1];
+      else if (quantity[ival] == W) numer = pmass*v[2];
+      else error->all(FLERR,"Quantitiy not valid");
+
+      if (direction[ival] == XLO || direction[ival]+1 == XHI)
+        denom = fabs(v[0]);
+      else if (direction[ival] == YLO || direction[ival]+1 == YHI)
+        denom = fabs(v[1]);
+      else if (direction[ival] == ZLO || direction[ival]+1 == ZHI)
+        denom = fabs(v[2]);
+      else error->all(FLERR,"Direction not valid");
+
+      face[icell][ivalue] += (numer/denom)*theta;
+      face[icell][ivalue+1] += (1.0/denom)*theta;
+      ivalue += 2;
     }
-
   } // END check previous crossing
+}
 
-  // if particle ends 
-  if (outface == INTERIOR) return;
+/* ----------------------------------------------------------------------
+   update cell bulk based on relative time in cell
+------------------------------------------------------------------------- */
 
-  // check face the particle WILL cross
-  if (frac < 1.0) {
+void FixCellGrad::update_cell_bulk(Particle::OnePart *ipart, int icell, double dtremain)
+{
+  Particle::OnePart *particles = particle->particles;
+  Grid::ChildCell *cells = grid->cells;
 
-    // heaviside function
-    double theta = 1.0;
-    if (outface == XLO || outface == YLO || outface == ZLO) theta = -1.0;
+  // get particle attributes/properties
 
-    // update cell face quants
-    // faces follow same enum order (range from 0 -> 2*DIM-1)
-    // xlo -> 0, xhi -> 1, ylo -> 2, ...
-    int ivalue = 0;
-    int i_index;
-    for (int ival = 0; ival < FACELASTSIZE; ival++) {
-      if (faceids[ival]) {
-        i_index = ivalue+outface;
-        if (ival == RHO) face[icell][i_index] += pmass;
-        else if (ival == U) face[icell][i_index] += pmass*v[0];
-        else if (ival == V) face[icell][i_index] += pmass*v[1];
-        else if (ival == W) face[icell][i_index] += pmass*v[2];
-        else if (ival == UMAG) face[icell][i_index] += pmass*fabs(v[0]);
-        else if (ival == VMAG) face[icell][i_index] += pmass*fabs(v[1]);
-        else if (ival == WMAG) face[icell][i_index] += pmass*fabs(v[2]);
-        ivalue += (dim*2);
-      }
-    } // END for face values
+  int isp = ipart->ispecies;
+  double pmass = particle->species[isp].mass;
 
-    // update bulk cell quants
-    ivalue = 0;
-    double dtcell = dtremain * frac;
-    for (int ival = 0; ival < CELLLASTSIZE; ival++) {
-      if (cellids[ival]) {
-        if (ival == RHO_BULK) cell[icell][ivalue++] += pmass*dtcell;
-        else if (ival == U_BULK) cell[icell][ivalue++] += pmass*v[0]*dtcell;
-        else if (ival == V_BULK) cell[icell][ivalue++] += pmass*v[1]*dtcell;
-        else if (ival == W_BULK) cell[icell][ivalue++] += pmass*v[2]*dtcell;
-        else if (ival == UVWSQ_BULK)
-          cell[icell][ivalue++] +=
-            pmass*(v[0]*v[0]+v[1]*v[1]+v[2]*v[2])*dtcell;
-      }
-    } // END for cell values
+  // grab the per-grid custom arrays
 
-  } // END check future crossing
+  double **cell = grid->edarray[grid->ewhich[cellbulkindex]];
 
+  // particle position/velocity
+
+  double v[3];
+  memcpy(v,ipart->v,3*sizeof(double));
+
+  double dt_cell = dtremain/update->dt;
+  cell[icell][0] += pmass*dt_cell;
+  int ivalue = 1;
+  for (int ival = 0; ival < nvalues; ival++) {
+    if (quantity[ival] == U) cell[icell][ival+1] += pmass*v[0]*dt_cell;
+    else if (quantity[ival] == V) cell[icell][ival+1] += pmass*v[1]*dt_cell;
+    else if (quantity[ival] == W) cell[icell][ival+1] += pmass*v[2]*dt_cell;
+    else error->all(FLERR,"Quantitiy not valid");
+  } // END for cell values
+
+}
+
+
+/* ----------------------------------------------------------------------
+   records current crossing events
+------------------------------------------------------------------------- */
+
+void FixCellGrad::face_flux_postmove(Particle::OnePart *ipart, int outface, int icell)
+{
+  Particle::OnePart *particles = particle->particles;
+  Grid::ChildCell *cells = grid->cells;
+
+  // get particle mass
+
+  int isp = ipart->ispecies;
+  double pmass = particle->species[isp].mass;
+  int pflag = ipart->flag;
+  double dtremain = ipart->dtremain;
+
+  // grab the per-grid custom arrays
+
+  double **face = grid->edarray[grid->ewhich[cellfaceindex]];
+
+  // particle props
+
+  double v[3];
+  memcpy(v,ipart->v,3*sizeof(double));
+
+  // cell props
+
+  double *lo = cells[icell].lo;
+  double *hi = cells[icell].hi;
+
+  if (outface == INTERIOR) error->all(FLERR,"Should never record outface");
+
+  // heaviside function
+  double theta = 1.0;
+  if (outface == XLO || outface == YLO || outface == ZLO) theta = -1.0;
+
+  // update cell face quants
+  // faces follow same enum order (range from 0 -> 2*DIM-1)
+  // xlo -> 0, xhi -> 1, ylo -> 2, ...
+  int ivalue = 0;
+  double denom, numer;
+
+  for (int ival = 0; ival < nvalues; ival++) {
+
+    if (quantity[ival] == U) numer = pmass*v[0];
+    else if (quantity[ival] == V) numer = pmass*v[1];
+    else if (quantity[ival] == W) numer = pmass*v[2];
+    else error->all(FLERR,"Quantitiy not valid");
+
+    if (direction[ival] == XLO || direction[ival]+1 == XHI)
+      denom = fabs(v[0]);
+    else if (direction[ival] == YLO || direction[ival]+1 == YHI)
+      denom = fabs(v[1]);
+    else if (direction[ival] == ZLO || direction[ival]+1 == ZHI)
+      denom = fabs(v[2]);
+    else error->all(FLERR,"Direction not valid");
+
+    face[icell][ivalue] += (numer/denom)*theta;
+    face[icell][ivalue+1] += (1.0/denom)*theta;
+    ivalue += 2;
+  }
+}
+
+/* ----------------------------------------------------------------------
+   reallocate arrays if nglocal has changed
+   called by init() and whenever grid changes
+------------------------------------------------------------------------- */
+
+void FixCellGrad::reallocate()
+{
+  if (grid->nlocal == nglocal) return;
+
+  memory->destroy(array_grid);
+  nglocal = grid->nlocal;
+  memory->create(array_grid,nglocal,size_per_grid_cols,"fix/cell/grad:array_grid");
+
+  // initialize values
+  for (int i = 0; i < nglocal; i++)
+    for (int j = 0; j < size_per_grid_cols; j++)
+      array_grid[i][j] = 0.0;
 }
 
 /* ----------------------------------------------------------------------
    memory usage
 ------------------------------------------------------------------------- */
 
-double FixCellGrad::memory_usage()
-{
-  double bytes = 0.0;
+//double FixCellGrad::memory_usage()
+//{
+//  double bytes = 0.0;
   //bytes += maxgrid*3 * sizeof(double);
-  return bytes;
-}
+//  return bytes;
+//}

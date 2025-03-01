@@ -32,26 +32,30 @@ class FixCellGrad : public Fix {
   virtual ~FixCellGrad();
   int setmask();
   void init();
-  void mid_step(int, int, int, int, double, double);
-  void mid_step_surf(int, int, int, int, double, double); // surf on cell edge
-  void mid_step_internal_surf(int, int, int, int, double, double); 
+  void face_flux_premove(Particle::OnePart *, int);
+  void update_cell_bulk(Particle::OnePart *, int, double);
+  void face_flux_postmove(Particle::OnePart *, int, int);
   void end_of_step();
-  double memory_usage();
+  //double memory_usage();
 
-  int xface, yface, zface; // flags for which faces to sum over
+ protected:
+
+  int dim;
+  int nglocal;
+  double T_interval; //time interval for sampling crossings
+  int aveflag;
+  int nsample;
+
   int nvalues;
   int *faceids; // list of all face values
   int *cellids; // list of all cell values
   int cellbulkindex; // custom per-grid for cell center values
   int cellfaceindex; // custom per-grid for cell face values
 
- protected:
+  int *direction; // for end_of_step to direct how to compute outputs
+  int *quantity; // what to accumulate
 
-  int dim;
-  double T_interval; //time interval for sampling crossings
-  int maxgrid;
-  int nevery;
-  int aveflag;
+  void reallocate();
 
 };
 
