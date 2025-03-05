@@ -461,7 +461,7 @@ template < int DIM, int SURF, int OPT > void Update::move()
 
       // record fluxes in particle's history
       if (fix_out_flag)
-        f->during_move(&particles[i],0,icell,0,0);
+        f->during_move(&particles[i],0,particles[i].icell,0,0);
 
       // received from another proc and move is done
       // if first iteration, PDONE is from a previous step,
@@ -1047,6 +1047,7 @@ template < int DIM, int SURF, int OPT > void Update::move()
         //   flag as PDONE so new proc won't move it more on this step
 
         if (outface == INTERIOR) {
+          // udpate bulk
           if (fix_out_flag)
             f->during_move(&particles[i],1,icell,0,dtremain);
 
