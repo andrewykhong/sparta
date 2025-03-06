@@ -50,6 +50,9 @@ class FixCellGrad : public Fix {
   int cellbulkindex; // custom per-grid for cell center values
   int cellfaceindex; // custom per-grid for cell face values
 
+  double **face;
+  double **vol;
+
   int *direction; // for end_of_step to direct how to compute outputs
   int *quantity; // what to accumulate
 

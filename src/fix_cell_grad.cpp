@@ -44,6 +44,9 @@ enum{DX,DY,DZ,SUM};
 FixCellGrad::FixCellGrad(SPARTA *sparta, int narg, char **arg) :
   Fix(sparta, narg, arg)
 {
+  face = NULL;
+  vol = NULL;
+
   if (narg < 3) error->all(FLERR,"Illegal fix cell/grad command");
 
   // how frequently to update cell fluxes
@@ -118,21 +121,6 @@ FixCellGrad::FixCellGrad(SPARTA *sparta, int narg, char **arg) :
   if (size_per_grid_cols == 0)
     error->one(FLERR,"No face values specified in fix cell grad");
 
-  // store quantities in custom grid arrays
-  // check if custom per-grid attribute exists
-
-  cellbulkindex = grid->find_custom((char *) "cellbulk");
-  cellfaceindex = grid->find_custom((char *) "cellface");
-
-  if (cellfaceindex >= 0 || cellbulkindex >= 0)
-    error->all(FLERR,"Fix cell gradient already exists");
-
-  // cell bulk tracks density and number of bulk velocities (one extra)
-  cellbulkindex = grid->add_custom((char *) "cellbulk", DOUBLE, nvalues+1);
-  // each gradients needs 2 values for numer and denom
-  // shouldn't need to do any syncronization between procs since this
-  // .. quantity is measured during move where particles are migrated
-  cellfaceindex = grid->add_custom((char *) "cellface", DOUBLE, 2*nvalues);
 }
 
 /* ---------------------------------------------------------------------- */
@@ -144,12 +132,9 @@ FixCellGrad::~FixCellGrad()
   memory->destroy(array_grid);
   memory->destroy(direction);
   memory->destroy(quantity);
+  memory->destroy(face);
+  memory->destroy(vol);
 
-  delete [] cellids;
-  delete [] faceids;
-
-  grid->remove_custom(cellbulkindex);
-  grid->remove_custom(cellfaceindex);
 }
 
 /* ---------------------------------------------------------------------- */
@@ -184,11 +169,6 @@ void FixCellGrad::end_of_step()
   int ivalue;
   double rho, vcell, igrad, volume;
 
-  // grab the per-grid custom arrays
-
-  double **face = grid->edarray[grid->ewhich[cellfaceindex]];
-  double **cell = grid->edarray[grid->ewhich[cellbulkindex]];
-
   // cell geometry
 
   double *lo;
@@ -206,15 +186,18 @@ void FixCellGrad::end_of_step()
     volume = (hi[0]-lo[0])*(hi[1]-lo[1]);
     if (dim == 3) volume *= (hi[2]-lo[2]);
 
-    rho = cell[icell][0]/(volume*T_interval);
+    //printf("mass: %4.3e - V: %4.3e\n", cell[icell][0]/T_interval, volume);
+    rho = vol[icell][0]/(volume*T_interval);
     //printf("rho: %4.3e\n", rho);
     ivalue = 0;
     for (int i = 0; i < size_per_grid_cols; i++) {
-      vcell = cell[icell][i+1]/(volume*T_interval);
+      vcell = vol[icell][i+1]/(volume*T_interval);
       vcell /= rho;
-      //printf("vcell: %4.3e\n", vcell);
       igrad = face[icell][ivalue] - face[icell][ivalue+1]*vcell;
+      //printf("face: %4.3e, %4.3e\n", face[icell][ivalue], face[icell][ivalue+1]);
       igrad /= (rho*volume*T_interval);
+      //printf("igrad: %4.3e\n", igrad);
+
       array_grid[icell][i] = (array_grid[icell][i]*nsample+igrad)/(nsample+1);
       ivalue += 2;
     }
@@ -222,15 +205,17 @@ void FixCellGrad::end_of_step()
     // reset custom arrays for measuring over next interval
 
     ivalue = 0;
-    cell[icell][0] = 0.0;
+    vol[icell][0] = 0.0;
     for (int i = 0; i < size_per_grid_cols; i++) {
-      cell[icell][i+1] = 0.0;
+      vol[icell][i+1] = 0.0;
       face[icell][ivalue] = 0.0;
       face[icell][ivalue+1] = 0.0;
       ivalue += 2;
     }
 
   } // end cells
+
+  nsample = nsample + 1;
 
   //error->one(FLERR,"ck end of step");
 }
@@ -239,6 +224,9 @@ void FixCellGrad::end_of_step()
 
 void FixCellGrad::during_move(Particle::OnePart *ipart, int type, int icell, int outface, double dtremain)
 {
+  // ignore ghost cells
+  if (icell >= nglocal) return;
+
   if (type == 0) face_flux_premove(ipart,icell);
   else if (type == 1) update_cell_bulk(ipart, icell, dtremain);
   else if (type == 2) face_flux_postmove(ipart, outface, icell);
@@ -248,17 +236,20 @@ void FixCellGrad::during_move(Particle::OnePart *ipart, int type, int icell, int
 
 /* ----------------------------------------------------------------------
    records crossing events in past
+   (particle velocity has been updated)
 ------------------------------------------------------------------------- */
 
 void FixCellGrad::face_flux_premove(Particle::OnePart *ipart, int icell)
 {
+  //printf("premove\n");
+
   Particle::OnePart *particles = particle->particles;
   Grid::ChildCell *cells = grid->cells;
 
   // get particle attributes/properties
 
   int isp = ipart->ispecies;
-  double pmass = particle->species[isp].mass;
+  double pmass = particle->species[isp].mass*update->fnum;
   int pflag = ipart->flag;
   double dtremain = ipart->dtremain;
 
@@ -310,10 +301,6 @@ void FixCellGrad::face_flux_premove(Particle::OnePart *ipart, int icell)
   // ... was emitted from a face/surface
   // can ignore since no history to record
   if (!prev_cross_flag) return;
-
-  // grab the per-grid custom arrays
-
-  double **face = grid->edarray[grid->ewhich[cellfaceindex]];
 
   // find which face the particle is closest to
   // set guess as max cell dimension
@@ -373,9 +360,9 @@ void FixCellGrad::face_flux_premove(Particle::OnePart *ipart, int icell)
   int ivalue = 0;
   double denom, numer;
   for (int ival = 0; ival < nvalues; ival++) {
-    if (quantity[ival] == U) numer = pmass*v[0];
-    else if (quantity[ival] == V) numer = pmass*v[1];
-    else if (quantity[ival] == W) numer = pmass*v[2];
+    if (quantity[ival] == U) numer = v[0];
+    else if (quantity[ival] == V) numer = v[1];
+    else if (quantity[ival] == W) numer = v[2];
     else error->all(FLERR,"Quantitiy not valid");
 
     if (direction[ival] == XLO || direction[ival]+1 == XHI)
@@ -386,8 +373,13 @@ void FixCellGrad::face_flux_premove(Particle::OnePart *ipart, int icell)
       denom = fabs(v[2]);
     else error->all(FLERR,"Direction not valid");
 
-    face[icell][ivalue] += (numer/denom)*theta;
-    face[icell][ivalue+1] += (1.0/denom)*theta;
+    //printf("v: %4.3e, %4.3e, %4.3e\n", v[0], v[1], v[2]);
+    //printf("theta: %4.3e; inface: %i \n", theta, inface);
+    //printf("numer: %4.3e\n", numer);
+    //printf("denom: %4.3e\n\n", denom);
+
+    face[icell][ivalue] += pmass*(numer/denom)*theta;
+    face[icell][ivalue+1] += (pmass/denom)*theta;
     ivalue += 2;
   }
 
@@ -407,44 +399,37 @@ void FixCellGrad::face_flux_premove(Particle::OnePart *ipart, int icell)
 
 /* ----------------------------------------------------------------------
    update cell bulk based on relative time in cell
+   (particle velocity has not been updated)
 ------------------------------------------------------------------------- */
 
 void FixCellGrad::update_cell_bulk(Particle::OnePart *ipart, int icell, double dtremain)
 {
+  //printf("bulk\n");
+
   Particle::OnePart *particles = particle->particles;
   Grid::ChildCell *cells = grid->cells;
 
   // get particle attributes/properties
 
   int isp = ipart->ispecies;
-  double pmass = particle->species[isp].mass;
-
-  // grab the per-grid custom arrays
-
-  double **cell = grid->edarray[grid->ewhich[cellbulkindex]];
+  double pmass = particle->species[isp].mass*update->fnum;
 
   // particle position/velocity
 
   double v[3];
   memcpy(v,ipart->v,3*sizeof(double));
 
-  double dt_cell = dtremain/update->dt;
-  cell[icell][0] += pmass*dt_cell;
+  vol[icell][0] += pmass*dtremain;
   int ivalue = 1;
   for (int ival = 0; ival < nvalues; ival++) {
-    if (quantity[ival] == U) cell[icell][ival+1] += pmass*v[0]*dt_cell;
-    else if (quantity[ival] == V) cell[icell][ival+1] += pmass*v[1]*dt_cell;
-    else if (quantity[ival] == W) cell[icell][ival+1] += pmass*v[2]*dt_cell;
+    if (quantity[ival] == U) vol[icell][ival+1] += pmass*v[0]*dtremain;
+    else if (quantity[ival] == V) vol[icell][ival+1] += pmass*v[1]*dtremain;
+    else if (quantity[ival] == W) vol[icell][ival+1] += pmass*v[2]*dtremain;
     else error->all(FLERR,"Quantitiy not valid");
 
-    /*if (icell == 0) {
-      if (quantity[ival] == U)
-        printf("ival: %i - U : %4.3e -> %4.3e\n", ival, pmass*v[0]*dt_cell, cell[icell][ival+1]);
-      else if (quantity[ival] == V)
-        printf("ival: %i - V : %4.3e -> %4.3e\n", ival, pmass*v[1]*dt_cell, cell[icell][ival+1]);
-      else if (quantity[ival] == W)
-        printf("ival: %i - W : %4.3e -> %4.3e\n", ival, pmass*v[2]*dt_cell, cell[icell][ival+1]);
-    }*/
+    //printf("dt: %4.3e\n", dtremain);
+    //printf("v: %4.3e, %4.3e, %4.3e\n", v[0], v[1], v[2]);
+    //printf("vol: %4.3e - %4.3e\n\n", vol[icell][0], vol[icell][ival+1]);
 
   } // END for cell values
 }
@@ -452,23 +437,22 @@ void FixCellGrad::update_cell_bulk(Particle::OnePart *ipart, int icell, double d
 
 /* ----------------------------------------------------------------------
    records current crossing events
+   (particle velocity has not been updated)
 ------------------------------------------------------------------------- */
 
 void FixCellGrad::face_flux_postmove(Particle::OnePart *ipart, int outface, int icell)
 {
+  //printf("postmove\n");
+
   Particle::OnePart *particles = particle->particles;
   Grid::ChildCell *cells = grid->cells;
 
   // get particle mass
 
   int isp = ipart->ispecies;
-  double pmass = particle->species[isp].mass;
+  double pmass = particle->species[isp].mass*update->fnum;
   int pflag = ipart->flag;
   double dtremain = ipart->dtremain;
-
-  // grab the per-grid custom arrays
-
-  double **face = grid->edarray[grid->ewhich[cellfaceindex]];
 
   // particle props
 
@@ -498,9 +482,9 @@ void FixCellGrad::face_flux_postmove(Particle::OnePart *ipart, int outface, int 
 
   for (int ival = 0; ival < nvalues; ival++) {
 
-    if (quantity[ival] == U) numer = pmass*v[0];
-    else if (quantity[ival] == V) numer = pmass*v[1];
-    else if (quantity[ival] == W) numer = pmass*v[2];
+    if (quantity[ival] == U) numer = v[0];
+    else if (quantity[ival] == V) numer = v[1];
+    else if (quantity[ival] == W) numer = v[2];
     else error->all(FLERR,"Quantitiy not valid");
 
     if (direction[ival] == XLO || direction[ival]+1 == XHI)
@@ -511,8 +495,13 @@ void FixCellGrad::face_flux_postmove(Particle::OnePart *ipart, int outface, int 
       denom = fabs(v[2]);
     else error->all(FLERR,"Direction not valid");
 
-    face[icell][ivalue] += (numer/denom)*theta;
-    face[icell][ivalue+1] += (1.0/denom)*theta;
+    //printf("v: %4.3e, %4.3e, %4.3e\n", v[0], v[1], v[2]);
+    //printf("theta: %4.3e; outface: %i \n", theta, outface);
+    //printf("numer: %4.3e\n", numer);
+    //printf("denom: %4.3e\n\n", denom);
+
+    face[icell][ivalue] += pmass*(numer/denom)*theta;
+    face[icell][ivalue+1] += (pmass/denom)*theta;
     ivalue += 2;
 
     //if (quantity[ival] == U)
@@ -544,13 +533,24 @@ void FixCellGrad::reallocate()
   if (grid->nlocal == nglocal) return;
 
   memory->destroy(array_grid);
+  memory->destroy(face);
+  memory->destroy(vol);
+
   nglocal = grid->nlocal;
+
   memory->create(array_grid,nglocal,size_per_grid_cols,"fix/cell/grad:array_grid");
+  memory->create(face,      nglocal,2*nvalues,"fix/cell/grad:face");
+  memory->create(vol,       nglocal,nvalues+1,"fix/cell/grad:vol");
 
   // initialize values
-  for (int i = 0; i < nglocal; i++)
+  for (int i = 0; i < nglocal; i++) {
     for (int j = 0; j < size_per_grid_cols; j++)
       array_grid[i][j] = 0.0;
+    for (int j = 0; j < 2*nvalues; j++)
+      face[i][j] = 0.0;
+    for (int j = 0; j < nvalues+1; j++)
+      vol[i][j] = 0.0;
+  }
 }
 
 /* ----------------------------------------------------------------------

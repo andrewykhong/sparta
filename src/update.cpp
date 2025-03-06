@@ -382,6 +382,7 @@ template < int DIM, int SURF, int OPT > void Update::move()
   Particle::OnePart iorig;
   Particle::OnePart *particles;
   Particle::OnePart *ipart,*jpart;
+
   Fix *f;
   if (fix_out_flag) f = modify->fix[ioutfix];
 
@@ -456,11 +457,14 @@ template < int DIM, int SURF, int OPT > void Update::move()
       pstop = nlocal;
     }
 
+    //printf("----begin loop----\n");
+    //printf("start: %i; finish: %i\n", pstart, pstop);
     for (int i = pstart; i < pstop; i++) {
       pflag = particles[i].flag;
 
       // record fluxes in particle's history
-      if (fix_out_flag)
+      // skip first iteration
+      if (fix_out_flag && niterate > 1)
         f->during_move(&particles[i],0,particles[i].icell,0,0);
 
       // received from another proc and move is done
@@ -519,6 +523,12 @@ template < int DIM, int SURF, int OPT > void Update::move()
         if (DIM != 2) xnew[2] = x[2] + dtremain*v[2];
         if (pflag > PSURF) exclude = pflag - PSURF - 1;
       }
+
+      //printf("v: %4.3e, %4.3e, %4.3e\n", v[0],v[1],v[2]);
+      //printf("x: %4.3e, %4.3e, %4.3e\n", x[0],x[1],x[2]);
+      //printf("xn: %4.3e, %4.3e, %4.3e\n", xnew[0],xnew[1],xnew[2]);
+      //printf("dt: %4.3e\n", dtremain);
+      //error->one(FLERR,"ck");
 
       // optimized move
 
@@ -582,7 +592,7 @@ template < int DIM, int SURF, int OPT > void Update::move()
 
       //int iterate = 0;
 
-      int first = 1;
+      int first = 1; // flag to not double count premove
 
       while (1) {
 
@@ -1105,9 +1115,9 @@ template < int DIM, int SURF, int OPT > void Update::move()
         nflag = grid->neigh_decode(nmask,outface);
         icell_original = icell;
 
-        // record bulk
+        // record bulk (dtremain already accounts for frac)
         if (fix_out_flag)
-          f->during_move(&particles[i],1,icell,0,dtremain);
+          f->during_move(&particles[i],1,icell,0,dtremain/(1.0-frac)*frac);
 
         if (nflag == NCHILD) {
           icell = neigh[outface];
@@ -1300,6 +1310,8 @@ template < int DIM, int SURF, int OPT > void Update::move()
         }
       }
     }
+
+    //printf("----end loop----\n");
 
     // END of pstart/pstop loop advecting all particles
 
