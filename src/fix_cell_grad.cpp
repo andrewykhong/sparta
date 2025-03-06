@@ -191,8 +191,7 @@ void FixCellGrad::end_of_step()
     //printf("rho: %4.3e\n", rho);
     ivalue = 0;
     for (int i = 0; i < size_per_grid_cols; i++) {
-      vcell = vol[icell][i+1]/(volume*T_interval);
-      vcell /= rho;
+      vcell = vol[icell][i+1]/(volume*T_interval*rho);
       igrad = face[icell][ivalue] - face[icell][ivalue+1]*vcell;
       //printf("face: %4.3e, %4.3e\n", face[icell][ivalue], face[icell][ivalue+1]);
       igrad /= (rho*volume*T_interval);

@@ -458,14 +458,16 @@ template < int DIM, int SURF, int OPT > void Update::move()
     }
 
     //printf("----begin loop----\n");
-    //printf("start: %i; finish: %i\n", pstart, pstop);
+    //printf("iterate %i\n", niterate);
     for (int i = pstart; i < pstop; i++) {
       pflag = particles[i].flag;
 
       // record fluxes in particle's history
       // skip first iteration
-      if (fix_out_flag && niterate > 1)
+      if (fix_out_flag && niterate > 1) {
+        //printf("update - pre pre move\n");
         f->during_move(&particles[i],0,particles[i].icell,0,0);
+      }
 
       // received from another proc and move is done
       // if first iteration, PDONE is from a previous step,
@@ -523,12 +525,6 @@ template < int DIM, int SURF, int OPT > void Update::move()
         if (DIM != 2) xnew[2] = x[2] + dtremain*v[2];
         if (pflag > PSURF) exclude = pflag - PSURF - 1;
       }
-
-      //printf("v: %4.3e, %4.3e, %4.3e\n", v[0],v[1],v[2]);
-      //printf("x: %4.3e, %4.3e, %4.3e\n", x[0],x[1],x[2]);
-      //printf("xn: %4.3e, %4.3e, %4.3e\n", xnew[0],xnew[1],xnew[2]);
-      //printf("dt: %4.3e\n", dtremain);
-      //error->one(FLERR,"ck");
 
       // optimized move
 
@@ -596,9 +592,17 @@ template < int DIM, int SURF, int OPT > void Update::move()
 
       while (1) {
 
+        //printf("icell: %i; x: %4.3e, %4.3e, %4.3e\n", icell, x[0],x[1],x[2]);
+        
+        //printf("v: %4.3e, %4.3e, %4.3e\n", v[0],v[1],v[2]);
+        //printf("xn: %4.3e, %4.3e, %4.3e\n", xnew[0],xnew[1],xnew[2]);
+        //printf("dt: %4.3e\n", dtremain);
+        //error->one(FLERR,"ck");
+
         // update face and cell quantites for the fixes
         // only if not first iteration (handled above)
         if (fix_out_flag) {
+          //if (!first) printf("update - pre move\n");
           if (first) first = 0;
           else
             f->during_move(&particles[i],0,icell,0,0);
@@ -1057,7 +1061,8 @@ template < int DIM, int SURF, int OPT > void Update::move()
         //   flag as PDONE so new proc won't move it more on this step
 
         if (outface == INTERIOR) {
-          // udpate bulk
+          //printf("update - bulk\n");
+          // update bulk only
           if (fix_out_flag)
             f->during_move(&particles[i],1,icell,0,dtremain);
 
@@ -1115,9 +1120,14 @@ template < int DIM, int SURF, int OPT > void Update::move()
         nflag = grid->neigh_decode(nmask,outface);
         icell_original = icell;
 
-        // record bulk (dtremain already accounts for frac)
-        if (fix_out_flag)
+        // record bulk and post_move
+        // note that if there is boundary collisions, it will use old velocity
+        // new velocity used in premove in next iteration
+        if (fix_out_flag) {
+          //printf("update - bulk + post\n");
           f->during_move(&particles[i],1,icell,0,dtremain/(1.0-frac)*frac);
+          f->during_move(&particles[i],2,icell,outface,0);
+        }
 
         if (nflag == NCHILD) {
           icell = neigh[outface];
@@ -1144,13 +1154,7 @@ template < int DIM, int SURF, int OPT > void Update::move()
             }
           }
 
-          if (fix_out_flag)
-            f->during_move(&particles[i],2,icell_original,outface,0.0);
-
-        } else if (nflag == NUNKNOWN) {
-          icell = -1;
-          if (fix_out_flag)
-            f->during_move(&particles[i],2,icell_original,outface,0.0);
+        } else if (nflag == NUNKNOWN) icell = -1;
 
         // neighbor cell is global boundary
         // tally boundary stats if requested using iorig
@@ -1163,14 +1167,11 @@ template < int DIM, int SURF, int OPT > void Update::move()
         // PERIODIC: new cell via same logic as above for child/parent/unknown
         // OTHER: reflected particle stays in same grid cell
 
-        } else {
+        else {
           ipart = &particles[i];
 
           if (nboundary_tally)
             memcpy(&iorig,&particles[i],sizeof(Particle::OnePart));
-
-          if (fix_out_flag)
-            f->during_move(&particles[i],2,icell_original,outface,0.0);
 
           bflag = domain->collide(ipart,outface,icell,xnew,dtremain,
                                   jpart,reaction);
