@@ -261,6 +261,8 @@ void CreateISurf::set_corners()
       tmp_cvalues[ic][jc] = -1.0;
       svalues[ic][jc] = -1;
       mvalues[ic][jc] = -1.0;
+      // need to initialize if region is not all
+      cvalues[ic][jc] = 0.0;
       for (int kc = 0; kc < nmulti; kc++) ivalues[ic][jc][kc] = -1.0;
     }
   }
@@ -352,8 +354,12 @@ void CreateISurf::set_multi()
     for (int jc = 0; jc < ncorner; jc++) {
       svalues[ic][jc] = -1;
       mvalues[ic][jc] = -1.0;
-      for (int kc = 0; kc < nmulti; kc++) ivalues[ic][jc][kc] = -1.0;
-      for (int kc = 0; kc < nmulti; kc++) tmp_mulvalues[ic][jc][kc] = -1.0;
+      for (int kc = 0; kc < nmulti; kc++) {
+        ivalues[ic][jc][kc] = -1.0;
+        tmp_mulvalues[ic][jc][kc] = -1.0;
+        // need to initialize if region is not all
+        mulvalues[ic][jc][kc] = 0.0;
+      }
     }
   }
 
@@ -1143,6 +1149,7 @@ void CreateISurf::set_inout()
   Grid::ChildInfo *cinfo = grid->cinfo;
 
   int itype, sval;
+  double dx,dy,dz,cvol, sfrac;
   for (int icell = 0; icell < nglocal; icell++) {
     if (!(cinfo[icell].mask & groupbit)) continue;
     if (cells[icell].nsplit <= 0) continue;
@@ -1157,10 +1164,18 @@ void CreateISurf::set_inout()
 
     if (itype == 2) sval = 1; // fully inside so set all corner values to max
     else if (itype == 1) sval = 0; // fully outside so set all corners to min
-    else continue;
+    else {
+      cvol = cinfo[icell].volume;
+      dx = cells[icell].hi[0] - cells[icell].lo[0];
+      dy = cells[icell].hi[1] - cells[icell].lo[1];
+      dz = cells[icell].hi[2] - cells[icell].lo[2];
+      sfrac = (dx*dy*dz - cvol) / (dx*dy*dz);
+      if (sfrac <= 1e-4) sval = 0;
+      else sval = -1;
+    }
+    if (sval < 0) continue;
 
-    for (int m = 0; m < ncorner; m++)
-      if (svalues[icell][m] < 0) svalues[icell][m] = sval;
+    for (int m = 0; m < ncorner; m++) svalues[icell][m] = MAX(svalues[icell][m],sval);
 
   }
 }

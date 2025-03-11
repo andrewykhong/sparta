@@ -95,6 +95,15 @@ class FixAblate : public Fix {
   double **nvert;          // number of vertices around each corner
   double **nvert_ghost;    // ditto for my ghost cells communicated to me
 
+  double *cellfactor;      // per-cell prefactor for delta
+  double **user_factor;    // user-requested per-cell prefactor ranges
+  int nprefactor;
+  int factorflag;
+
+  int fillgroupbit;
+  int fillflag;
+  double fillvalue;
+
   int maxgrid;             // max size of per-cell vectors/arrays
   int maxghost;            // max size of cdelta_ghost
 

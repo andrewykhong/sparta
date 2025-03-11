@@ -1304,8 +1304,9 @@ void FixAblate::sync_multiv()
       // now decrement corners
 
       for (j = 0; j < nmultiv; j++) {
-        mvalues[icell][i][j] -= total[j];
+        mvalues[icell][i][j] += total[j];
         if (mvalues[icell][i][j] < 0.0) mvalues[icell][i][j] = 0.0;
+        else if (mvalues[icell][i][j] > 255.0) mvalues[icell][i][j] = 255.0;
       }
 
     } // end corners

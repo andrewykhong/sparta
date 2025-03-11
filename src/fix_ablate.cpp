@@ -221,6 +221,7 @@ FixAblate::FixAblate(SPARTA *sparta, int narg, char **arg) :
   ixyz = NULL;
   mcflags = NULL;
   celldelta = NULL;
+  cellfactor = NULL;
   cellarea = NULL;
   cellarea_ghost = NULL;
   cdelta = NULL;
@@ -285,6 +286,7 @@ FixAblate::~FixAblate()
   memory->destroy(mcflags);
 
   memory->destroy(celldelta);
+  memory->destroy(cellfactor);
   memory->destroy(cellarea);
   memory->destroy(cellarea_ghost);
   memory->destroy(cdelta);
@@ -384,6 +386,16 @@ void FixAblate::store_corners(int nx_caller, int ny_caller, int nz_caller,
         for (int n = 0; n < nmultiv; n++)
           mvalues[icell][m][n] = mvalues_caller[icell][m][n];
       }
+
+      // check valid
+      if(multi_val_flag) {
+        for (int n = 0; n < nmultiv; n++)
+          if (mvalues[icell][m][n] < 0.0 ||
+              mvalues[icell][m][n] > 255.0)
+            error->one(FLERR,"Bad corner value");
+      } else if (cvalues[icell][m] < 0.0 || cvalues[icell][m] > 255.0)
+        error->one(FLERR,"Bad corner value");
+
     }
     if (tvalues_flag) tvalues[icell] = tvalues_caller[icell];
   }
@@ -392,6 +404,7 @@ void FixAblate::store_corners(int nx_caller, int ny_caller, int nz_caller,
 
   if (minmaxflag) {
     for (int icell = 0; icell < nglocal; icell++) {
+      if (!(cinfo[icell].mask & groupbit)) continue;
       for (int m = 0; m < ncorner; m++) {
         if (!multi_val_flag) {
           if (cvalues[icell][m] < thresh) cvalues[icell][m] = 0.0;
@@ -402,8 +415,8 @@ void FixAblate::store_corners(int nx_caller, int ny_caller, int nz_caller,
             else mvalues[icell][m][n] = 255.0;
           }
         }
-      }
-    }
+      } // END corners
+    } // END cells
   }
 
   // set ix,iy,iz indices from 1 to Nxyz for each of my owned grid cells
@@ -422,6 +435,64 @@ void FixAblate::store_corners(int nx_caller, int ny_caller, int nz_caller,
       static_cast<int> ((cells[icell].lo[1]-cornerlo[1]) / xyzsize[1] + 0.5) + 1;
     ixyz[icell][2] =
       static_cast<int> ((cells[icell].lo[2]-cornerlo[2]) / xyzsize[2] + 0.5) + 1;
+  }
+
+  // set prefactor
+
+  if (factorflag) {
+    double cavg;
+    for (int icell = 0; icell < nglocal; icell++) {
+      if (!(cinfo[icell].mask & groupbit)) cellfactor[icell] = 0.0;
+      else {
+        cavg = 0;
+        for (int m = 0; m < ncorner; m++) {
+          if (multi_val_flag) {
+            for (int n = 0; n < nmultiv; n++)
+              cavg += mvalues[icell][m][n] = 0.0;
+          } else cavg += cvalues[icell][m];
+        }
+        if (multi_val_flag) cavg /= (nmultiv*ncorner);
+        else cavg /= ncorner;
+
+        for (int i = 0; i < nprefactor; i++) {
+          if (cavg > user_factor[i][0]) {
+            cellfactor[icell] = user_factor[i][1];
+            break;
+          }
+        }
+        //printf("cavg: %4.3e - cf: %4.3e\n", cavg, cellfactor[icell]);
+      } // END if groupbit
+    } // END cells
+  } // END if factor
+
+  // fill with matrix?
+
+  if (fillflag) {
+    for (int icell = 0; icell < nglocal; icell++) {
+      if (!(cinfo[icell].mask & fillgroupbit)) continue;
+
+      for (int m = 0; m < ncorner; m++) {
+        if (multi_val_flag) {
+          for (int n = 0; n < nmultiv; n++) {
+            if (mvalues[icell][m][n] <= fillvalue)
+              mdelta[icell][m][n] = (fillvalue-mvalues[icell][m][n])/ncorner;
+          }
+        } else {
+          if (cvalues[icell][m] <= fillvalue)
+            cdelta[icell][m] = (fillvalue-cvalues[icell][m])/ncorner;;
+        }
+      } // END corners
+
+    } // END cells
+
+    if (multi_val_flag) sync_multiv();
+    else sync();
+
+    //for (int icell = 0; icell < nglocal; icell++) {
+    //  if (!(cinfo[icell].mask & groupbit)) continue;
+    //  for (int m = 0; m < ncorner; m++)
+    //    printf("[%i][%i] - %4.3e\n", icell, m, cvalues[icell][m]);
+    //} // END cells
   }
 
   // push corner pt values with fully external/internal neighbors to 0 or 255
@@ -950,6 +1021,8 @@ void FixAblate::set_delta()
   int i,j;
 
   double prefactor = nevery*scale;
+  // use per-cell factor if specified
+  if (factorflag) prefactor = nevery;
   for (i = 0; i < nglocal; i++) celldelta[i] = 0.0;
 
   // compute/fix may invoke computes so wrap with clear/add
@@ -1027,7 +1100,7 @@ void FixAblate::set_delta()
   for (int icell = 0; icell < nglocal; icell++) {
     if (!(cinfo[icell].mask & groupbit)) continue;
     if (cells[icell].nsplit <= 0) continue;
-    sum += celldelta[icell];
+    sum += celldelta[icell]*cellfactor[icell];
   }
 
   MPI_Allreduce(&sum,&sum_delta,1,MPI_DOUBLE,MPI_SUM,world);
@@ -1831,11 +1904,13 @@ void FixAblate::grow_percell(int nnew)
   memory->grow(ixyz,maxgrid,3,"ablate:ixyz");
   memory->grow(mcflags,maxgrid,4,"ablate:mcflags");
   memory->grow(celldelta,maxgrid,"ablate:celldelta");
+  memory->grow(cellfactor,maxgrid,"ablate:cellfactor");
   memory->grow(cellarea,maxgrid,"ablate:cellarea");
   if (multi_val_flag) memory->grow(mdelta,maxgrid,ncorner,nmultiv,"ablate:mdelta");
   else memory->grow(cdelta,maxgrid,ncorner,"ablate:cdelta");
   if (multi_dec_flag) memory->grow(nvert,maxgrid,ncorner,"ablate:nvert");
   memory->grow(numsend,maxgrid,"ablate:numsend");
+  if (factorflag) memory->grow(cellfactor,maxgrid,"ablate:cellfactor");
 
   array_grid = cvalues;
 }
@@ -1914,37 +1989,66 @@ void FixAblate::process_args(int narg, char **arg)
   multi_dec_flag = 0;
   minmaxflag = 0;
   carryflag = 0;
+  factorflag = 0;
+  fillflag = 0;
+  user_factor = NULL;
 
   int iarg = 0;
   while (iarg < narg) {
     if (strcmp(arg[iarg],"mindist") == 0)  {
-      if (iarg+2 > narg) error->all(FLERR,"Invalid read_isurf command");
+      if (iarg+2 > narg) error->all(FLERR,"Invalid fix_ablate command");
       mindist = atof(arg[iarg+1]);
       if (mindist < 0.0 || mindist >= 0.5)
         error->all(FLERR,"Fix ablate mindist value must be >= 0.0 and < 0.5");
       mindist = MAX(mindist,EPSILON);
       iarg += 2;
     } else if (strcmp(arg[iarg],"multiple") == 0) {
-      if (iarg+2 > narg) error->all(FLERR,"Invalid read_isurf command");
-      if (strcmp(arg[iarg+1],"no") == 0) multi_dec_flag = 0;
-      else if (strcmp(arg[iarg+1],"yes") == 0) multi_dec_flag = 1;
-      else error->all(FLERR,"Illegal fix_ablate command");
-      iarg += 2;
+      multi_dec_flag = 1;
+      iarg++;
     } else if (strcmp(arg[iarg],"minmax") == 0) {
-      if (iarg+2 > narg) error->all(FLERR,"Invalid read_isurf command");
-      if (strcmp(arg[iarg+1],"no") == 0) minmaxflag = 0;
-      else if (strcmp(arg[iarg+1],"yes") == 0) minmaxflag = 1;
-      else error->all(FLERR,"Illegal fix_ablate command");
-      iarg += 2;
+      minmaxflag = 1;
+      iarg++;
     } else if (strcmp(arg[iarg],"carry") == 0) {
+      carryflag = 1;
+      iarg++;
+    } else if (strcmp(arg[iarg],"fill") == 0) {
+      if (iarg+3 > narg) error->all(FLERR,"Invalid fix_ablate command");
+      // need check here that the region is not larger than the fix_ablate region
+      int fillgroup = grid->find_group(arg[iarg+1]);
+      if (fillgroup < 0) error->all(FLERR,"Could not find fix ablate group ID");
+      fillgroupbit = grid->bitmask[fillgroup];
+      fillvalue = atof(arg[iarg+2]);
+      if (fillvalue >= 255.0)
+        error->warning(FLERR,"Fill value equal to maximum");
+      fillflag = 1;
+      iarg += 3;
+    } else if (strcmp(arg[iarg],"factor") == 0) {
       if (iarg+2 > narg) error->all(FLERR,"Invalid read_isurf command");
-      if (strcmp(arg[iarg+1],"no") == 0) carryflag = 0;
-      else if (strcmp(arg[iarg+1],"yes") == 0) carryflag = 1;
-      else error->all(FLERR,"Illegal fix_ablate command");
+      factorflag = 1;
+      nprefactor = atof(arg[iarg+1]);
       iarg += 2;
+      memory->create(user_factor,nprefactor,2,"ablate:user_factor");
+      for (int i = 0; i < nprefactor; i++) {
+        user_factor[i][0] = atof(arg[iarg]);
+        user_factor[i][1] = atof(arg[iarg+1]);
+        iarg += 2;
+      }
+
+      // sort from largest to smallest
+      // should be small so bubble sort ok
+      int sorted = 0;
+      while (!sorted) {
+        sorted = 1;
+        for (int i = 0; i < nprefactor-1; i++) {
+          if(user_factor[i][0] < user_factor[i+1][0]) {
+            sorted = 0;
+            std::swap(user_factor[i][0],user_factor[i+1][0]);
+            std::swap(user_factor[i][1],user_factor[i+1][1]);
+          }
+        }
+      }
     } else error->all(FLERR,"Illegal fix_ablate command");
   }
-
 }
 
 /* ----------------------------------------------------------------------
