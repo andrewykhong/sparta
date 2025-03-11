@@ -381,19 +381,22 @@ void FixAblate::store_corners(int nx_caller, int ny_caller, int nz_caller,
 
   for (int icell = 0; icell < nglocal; icell++) {
     for (int m = 0; m < ncorner; m++) {
-      if(!multi_val_flag) cvalues[icell][m] = cvalues_caller[icell][m];
-      else {
+      if(multi_val_flag) 
+      {
         for (int n = 0; n < nmultiv; n++)
           mvalues[icell][m][n] = mvalues_caller[icell][m][n];
       }
+      else cvalues[icell][m] = cvalues_caller[icell][m];
 
       // check valid
-      if(multi_val_flag) {
+      if(multi_val_flag)
+      {
         for (int n = 0; n < nmultiv; n++)
           if (mvalues[icell][m][n] < 0.0 ||
               mvalues[icell][m][n] > 255.0)
             error->one(FLERR,"Bad corner value");
-      } else if (cvalues[icell][m] < 0.0 || cvalues[icell][m] > 255.0)
+      }
+      else if (cvalues[icell][m] < 0.0 || cvalues[icell][m] > 255.0)
         error->one(FLERR,"Bad corner value");
 
     }
@@ -442,28 +445,29 @@ void FixAblate::store_corners(int nx_caller, int ny_caller, int nz_caller,
   if (factorflag) {
     double cavg;
     for (int icell = 0; icell < nglocal; icell++) {
-      if (!(cinfo[icell].mask & groupbit)) cellfactor[icell] = 0.0;
-      else {
-        cavg = 0;
-        for (int m = 0; m < ncorner; m++) {
-          if (multi_val_flag) {
-            for (int n = 0; n < nmultiv; n++)
-              cavg += mvalues[icell][m][n] = 0.0;
-          } else cavg += cvalues[icell][m];
-        }
-        if (multi_val_flag) cavg /= (nmultiv*ncorner);
-        else cavg /= ncorner;
+      if (!(cinfo[icell].mask & groupbit)) continue;
 
-        for (int i = 0; i < nprefactor; i++) {
-          if (cavg > user_factor[i][0]) {
-            cellfactor[icell] = user_factor[i][1];
-            break;
-          }
+      cavg = 0;
+      for (int m = 0; m < ncorner; m++) {
+        if (multi_val_flag) {
+          for (int n = 0; n < nmultiv; n++)
+            cavg += mvalues[icell][m][n];
+        } else cavg += cvalues[icell][m];
+      }
+      if (multi_val_flag) cavg /= (nmultiv*ncorner);
+      else cavg /= ncorner;
+
+      for (int i = 0; i < nprefactor; i++) {
+        if (cavg > user_factor[i][0]) {
+          cellfactor[icell] = user_factor[i][1];
+          break;
         }
-        //printf("cavg: %4.3e - cf: %4.3e\n", cavg, cellfactor[icell]);
-      } // END if groupbit
+      }
     } // END cells
-  } // END if factor
+  } else {
+    for (int icell = 0; icell < nglocal; icell++)
+      cellfactor[icell] = scale;
+  }
 
   // fill with matrix?
 
@@ -474,11 +478,11 @@ void FixAblate::store_corners(int nx_caller, int ny_caller, int nz_caller,
       for (int m = 0; m < ncorner; m++) {
         if (multi_val_flag) {
           for (int n = 0; n < nmultiv; n++) {
-            if (mvalues[icell][m][n] <= fillvalue)
+            if (mvalues[icell][m][n] <= thresh)
               mdelta[icell][m][n] = (fillvalue-mvalues[icell][m][n])/ncorner;
           }
         } else {
-          if (cvalues[icell][m] <= fillvalue)
+          if (cvalues[icell][m] <= thresh)
             cdelta[icell][m] = (fillvalue-cvalues[icell][m])/ncorner;;
         }
       } // END corners
@@ -1020,9 +1024,7 @@ void FixAblate::set_delta()
 {
   int i,j;
 
-  double prefactor = nevery*scale;
-  // use per-cell factor if specified
-  if (factorflag) prefactor = nevery;
+  double prefactor = nevery;
   for (i = 0; i < nglocal; i++) celldelta[i] = 0.0;
 
   // compute/fix may invoke computes so wrap with clear/add
@@ -1041,13 +1043,13 @@ void FixAblate::set_delta()
     if (argindex == 0) {
       double *cvec = c->vector_grid;
       for (i = 0; i < nglocal; i++)
-        celldelta[i] = prefactor * cvec[i];
+        celldelta[i] = prefactor * cvec[i] * cellfactor[i];
     // if only tracking a single one (which is stupid choice to give)
     } else {
       double **carray = c->array_grid;
       int im1 = argindex - 1;
       for (i = 0; i < nglocal; i++)
-        celldelta[i] = prefactor * carray[i][im1];
+        celldelta[i] = prefactor * carray[i][im1] * cellfactor[i];
     }
 
   } else if (which == FIX) {
@@ -1060,17 +1062,17 @@ void FixAblate::set_delta()
         int nrxn = f->size_per_grid_cols;
         for (i = 0; i < nglocal; i++)
           for (j = 0; j < nrxn; j++)
-            celldelta[i] += prefactor * farray[i][j];
+            celldelta[i] += prefactor * farray[i][j] * cellfactor[i];
       } else { // only one
         double *fvec = f->vector_grid;
         for (i = 0; i < nglocal; i++)
-          celldelta[i] = prefactor * fvec[i];
+          celldelta[i] = prefactor * fvec[i] * cellfactor[i];
       }
     } else {
       double **farray = f->array_grid;
       int im1 = argindex - 1;
       for (i = 0; i < nglocal; i++)
-        celldelta[i] = prefactor * farray[i][im1];
+        celldelta[i] = prefactor * farray[i][im1] * cellfactor[i];
     }
 
   } else if (which == VARIABLE) {
@@ -1082,7 +1084,7 @@ void FixAblate::set_delta()
 
     input->variable->compute_grid(ivariable,vbuf,1,0);
     for (i = 0; i < nglocal; i++)
-      celldelta[i] = prefactor * vbuf[i];
+      celldelta[i] = prefactor * vbuf[i] * cellfactor[i];
   }
 
   // NOTE: this does not get invoked on step 100,
@@ -1100,7 +1102,7 @@ void FixAblate::set_delta()
   for (int icell = 0; icell < nglocal; icell++) {
     if (!(cinfo[icell].mask & groupbit)) continue;
     if (cells[icell].nsplit <= 0) continue;
-    sum += celldelta[icell]*cellfactor[icell];
+    sum += celldelta[icell];
   }
 
   MPI_Allreduce(&sum,&sum_delta,1,MPI_DOUBLE,MPI_SUM,world);
@@ -1910,7 +1912,7 @@ void FixAblate::grow_percell(int nnew)
   else memory->grow(cdelta,maxgrid,ncorner,"ablate:cdelta");
   if (multi_dec_flag) memory->grow(nvert,maxgrid,ncorner,"ablate:nvert");
   memory->grow(numsend,maxgrid,"ablate:numsend");
-  if (factorflag) memory->grow(cellfactor,maxgrid,"ablate:cellfactor");
+  memory->grow(cellfactor,maxgrid,"ablate:cellfactor");
 
   array_grid = cvalues;
 }
@@ -2015,7 +2017,7 @@ void FixAblate::process_args(int narg, char **arg)
       if (iarg+3 > narg) error->all(FLERR,"Invalid fix_ablate command");
       // need check here that the region is not larger than the fix_ablate region
       int fillgroup = grid->find_group(arg[iarg+1]);
-      if (fillgroup < 0) error->all(FLERR,"Could not find fix ablate group ID");
+      if (fillgroup < 0) error->one(FLERR,"Could not find fix ablate group ID");
       fillgroupbit = grid->bitmask[fillgroup];
       fillvalue = atof(arg[iarg+2]);
       if (fillvalue >= 255.0)
