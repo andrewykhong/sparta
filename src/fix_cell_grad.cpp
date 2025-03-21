@@ -38,6 +38,7 @@ enum{RHO,U,V,W,UMAG,VMAG,WMAG,FACELASTSIZE};
 enum{DX,DY,DZ,SUM};
 
 #define MAXOUTPUTS 12
+#define EPSILON 1e-10
 
 /* ---------------------------------------------------------------------- */
 
@@ -188,14 +189,17 @@ void FixCellGrad::end_of_step()
 
     //printf("mass: %4.3e - V: %4.3e\n", cell[icell][0]/T_interval, volume);
     rho = vol[icell][0]/(volume*T_interval);
+    if (rho < 1e-7 || rho > 1.0) error->one(FLERR,"rho bad");
     //printf("rho: %4.3e\n", rho);
     ivalue = 0;
     for (int i = 0; i < size_per_grid_cols; i++) {
-      vcell = vol[icell][i+1]/(volume*T_interval*rho);
-      igrad = face[icell][ivalue] - face[icell][ivalue+1]*vcell;
-      //printf("face: %4.3e, %4.3e\n", face[icell][ivalue], face[icell][ivalue+1]);
-      igrad /= (rho*volume*T_interval);
-      //printf("igrad: %4.3e\n", igrad);
+      if (rho > 0) {
+        vcell = vol[icell][i+1]/(volume*T_interval*rho);
+        igrad = face[icell][ivalue] - face[icell][ivalue+1]*vcell;
+        //printf("face: %4.3e, %4.3e\n", face[icell][ivalue], face[icell][ivalue+1]);
+        igrad /= (rho*volume*T_interval);
+        //printf("igrad: %4.3e\n", igrad);
+      } else igrad = 0.0;
 
       array_grid[icell][i] = (array_grid[icell][i]*nsample+igrad)/(nsample+1);
       ivalue += 2;
@@ -377,8 +381,10 @@ void FixCellGrad::face_flux_premove(Particle::OnePart *ipart, int icell)
     //printf("numer: %4.3e\n", numer);
     //printf("denom: %4.3e\n\n", denom);
 
-    face[icell][ivalue] += pmass*(numer/denom)*theta;
-    face[icell][ivalue+1] += (pmass/denom)*theta;
+    if (denom > EPSILON) {
+      face[icell][ivalue] += pmass*(numer/denom)*theta;
+      face[icell][ivalue+1] += (pmass/denom)*theta;
+    }
     ivalue += 2;
   }
 
@@ -499,8 +505,10 @@ void FixCellGrad::face_flux_postmove(Particle::OnePart *ipart, int outface, int 
     //printf("numer: %4.3e\n", numer);
     //printf("denom: %4.3e\n\n", denom);
 
-    face[icell][ivalue] += pmass*(numer/denom)*theta;
-    face[icell][ivalue+1] += (pmass/denom)*theta;
+    if (denom > EPSILON) {
+      face[icell][ivalue] += pmass*(numer/denom)*theta;
+      face[icell][ivalue+1] += (pmass/denom)*theta;
+    }
     ivalue += 2;
 
     //if (quantity[ival] == U)

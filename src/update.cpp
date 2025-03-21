@@ -1125,6 +1125,7 @@ template < int DIM, int SURF, int OPT > void Update::move()
         // new velocity used in premove in next iteration
         if (fix_out_flag) {
           //printf("update - bulk + post\n");
+          // need frac since this is the time spent in cell 
           f->during_move(&particles[i],1,icell,0,dtremain/(1.0-frac)*frac);
           f->during_move(&particles[i],2,icell,outface,0);
         }

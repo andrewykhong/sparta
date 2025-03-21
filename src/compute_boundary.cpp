@@ -31,7 +31,7 @@ using namespace MathConst;
 
 enum{XLO,XHI,YLO,YHI,ZLO,ZHI,INTERIOR};         // same as Domain
 enum{PERIODIC,OUTFLOW,REFLECT,SURFACE,AXISYM};  // same as Domain
-enum{NUM,NUMWT,NFLUX,MFLUX,PRESS,XSHEAR,YSHEAR,ZSHEAR,KE,EROT,EVIB,ETOT};
+enum{NUM,NUMWT,NFLUX,MFLUX,PRESS,XSHEAR,YSHEAR,ZSHEAR,KE,EROT,EVIB,ETOT,U,V,W};
 
 /* ---------------------------------------------------------------------- */
 
@@ -57,6 +57,9 @@ ComputeBoundary::ComputeBoundary(SPARTA *sparta, int narg, char **arg) :
     else if (strcmp(arg[iarg],"shx") == 0) which[nvalue++] = XSHEAR;
     else if (strcmp(arg[iarg],"shy") == 0) which[nvalue++] = YSHEAR;
     else if (strcmp(arg[iarg],"shz") == 0) which[nvalue++] = ZSHEAR;
+    else if (strcmp(arg[iarg],"u") == 0) which[nvalue++] = U;
+    else if (strcmp(arg[iarg],"v") == 0) which[nvalue++] = V;
+    else if (strcmp(arg[iarg],"w") == 0) which[nvalue++] = W;
     else if (strcmp(arg[iarg],"ke") == 0) which[nvalue++] = KE;
     else if (strcmp(arg[iarg],"erot") == 0) which[nvalue++] = EROT;
     else if (strcmp(arg[iarg],"evib") == 0) which[nvalue++] = EVIB;
@@ -144,7 +147,8 @@ void ComputeBoundary::compute_array()
   int m;
   for (int j = 0; j < ntotal; j++) {
     m = j % nvalue;
-    if (which[m] != NUM && which[m] != NUMWT)
+    if (which[m] != NUM && which[m] != NUMWT &&
+        which[m] != U && which[m] != V && which[m] != W)
       for (int i = 0; i < size_array_rows; i++)
         array[i][j] /= normflux[i];
   }
@@ -374,6 +378,24 @@ void ComputeBoundary::boundary_tally(int iface, int istyle, int reaction,
         } else jvsqpost = jother = 0.0;
         vec[k++] -= 0.5*mvv2e*(ivsqpost + jvsqpost - vsqpre) +
           weight * (iother + jother - otherpre);
+        break;
+      case U:
+        vec[k] += vorig[0];
+        if (ip) vec[k] += ip->v[0];
+        if (jp) vec[k] += jp->v[0];
+        k++;
+        break;
+      case V:
+        vec[k] += vorig[1];
+        if (ip) vec[k] += ip->v[1];
+        if (jp) vec[k] += jp->v[1];
+        k++;
+        break;
+      case W:
+        vec[k] += vorig[2];
+        if (ip) vec[k] += ip->v[2];
+        if (jp) vec[k] += jp->v[2];
+        k++;
         break;
       }
     }
