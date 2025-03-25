@@ -150,6 +150,7 @@ class FixAblate : public Fix {
   void decrement_multiv_multid_inside();
 
   void sync();
+  void sync_max();
   void sync_multiv();
   void sync_multid_outside();
   void sync_multid_inside();

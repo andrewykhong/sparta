@@ -241,30 +241,31 @@ void ComputeReactISurfGrid::surf_tally(int isurf, int icell, int reaction,
 
   int iosp,isp,jsp;
   double del = 0; // mass change
+  double norm = 0.0;
 
   // gained from incident particles
   if (iorig) {
     iosp = iorig->ispecies;
     del += species[iosp].mass*update->fnum;
+    norm += species[iosp].mass*update->fnum;
   }
 
   // lose from exiting particles
   if (ip) {
     isp = ip->ispecies;
     del -= species[isp].mass*update->fnum;
+    norm += species[isp].mass*update->fnum;
   }
 
   if (jp) {
     jsp = jp->ispecies;
     del -= species[jsp].mass*update->fnum;
+    norm += species[jsp].mass*update->fnum;
   }
 
-  // if count, just count if net mass loss or gain
-  if (outtype == COUNT) {
-    if (del > 0) del = 1;
-    else if (del < 0) del = -1;
-    else del = 0;
-  }
+  // if count, normalize by total mass so decrement is ~ 
+  // total net atoms exchanged
+  if (outtype == COUNT) del /= norm;
 
   // any reaction leads to loss of one
   else if (outtype == REDUCE) del = -1;

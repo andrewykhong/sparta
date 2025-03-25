@@ -40,7 +40,7 @@
 
 using namespace SPARTA_NS;
 
-enum{COMPUTE,FIX,VARIABLE,RANDOM,UNIFORM};
+enum{COMPUTE,FIX,VARIABLE,RANDOM};
 enum{CVALUE,CDELTA,NVERT,AREA};
 
 #define INVOKED_PER_GRID 16
@@ -127,12 +127,6 @@ FixAblate::FixAblate(SPARTA *sparta, int narg, char **arg) :
 
     if (narg < 7) error->all(FLERR,"Illegal fix ablate command");
     which = RANDOM;
-    maxrandom = atoi(arg[6]);
-
-  } else if (strcmp(arg[5],"uniform") == 0) {
-    iarg++; // one additional input
-    if (narg < 7) error->all(FLERR,"Illegal fix ablate command");
-    which = UNIFORM;
     maxrandom = atoi(arg[6]);
 
   } else error->all(FLERR,"Illegal fix ablate command");
@@ -344,8 +338,13 @@ void FixAblate::store_corners(int nx_caller, int ny_caller, int nz_caller,
     mvalues = NULL; // likely not needed
   }
 
-  if (sphereflag_caller) sphereflag = 1;
-  else sphereflag = 0;
+  if (sphereflag_caller) {
+    sphereflag = 1;
+    thresh = EPSILON;
+  } else {
+    sphereflag = 0;
+    thresh = thresh_caller;
+  }
 
   nx = nx_caller;
   ny = ny_caller;
@@ -356,9 +355,6 @@ void FixAblate::store_corners(int nx_caller, int ny_caller, int nz_caller,
   xyzsize[0] = xyzsize_caller[0];
   xyzsize[1] = xyzsize_caller[1];
   xyzsize[2] = xyzsize_caller[2];
-
-  if (sphereflag) thresh = EPSILON;
-  else thresh = thresh_caller;
 
   tvalues_flag = 0;
   if (tvalues_caller) tvalues_flag = 1;
@@ -401,25 +397,6 @@ void FixAblate::store_corners(int nx_caller, int ny_caller, int nz_caller,
 
     }
     if (tvalues_flag) tvalues[icell] = tvalues_caller[icell];
-  }
-
-  // set all values to either min or max value
-
-  if (minmaxflag) {
-    for (int icell = 0; icell < nglocal; icell++) {
-      if (!(cinfo[icell].mask & groupbit)) continue;
-      for (int m = 0; m < ncorner; m++) {
-        if (!multi_val_flag) {
-          if (cvalues[icell][m] < thresh) cvalues[icell][m] = 0.0;
-          else cvalues[icell][m] = 255.0;
-        } else {
-          for (int n = 0; n < nmultiv; n++) {
-            if (mvalues[icell][m][n] < thresh) mvalues[icell][m][n] = 0.0;
-            else mvalues[icell][m][n] = 255.0;
-          }
-        }
-      } // END corners
-    } // END cells
   }
 
   // set ix,iy,iz indices from 1 to Nxyz for each of my owned grid cells
@@ -469,34 +446,61 @@ void FixAblate::store_corners(int nx_caller, int ny_caller, int nz_caller,
       cellfactor[icell] = scale;
   }
 
+  // set all values to either min or max value
+
+  if (minmaxflag) {
+    for (int icell = 0; icell < nglocal; icell++) {
+      if (!(cinfo[icell].mask & groupbit)) continue;
+      for (int m = 0; m < ncorner; m++) {
+        if (multi_val_flag) {
+          for (int n = 0; n < nmultiv; n++) {
+            if (mvalues[icell][m][n] < thresh) mvalues[icell][m][n] = 0.0;
+            else mvalues[icell][m][n] = 255.0;
+          }
+        } else {
+          if (cvalues[icell][m] < thresh) cvalues[icell][m] = 0.0;
+          else cvalues[icell][m] = 255.0;
+        }
+      } // END corners
+    } // END cells
+  }
+
   // fill with matrix?
 
   if (fillflag) {
     for (int icell = 0; icell < nglocal; icell++) {
       if (!(cinfo[icell].mask & fillgroupbit)) continue;
 
+      // need to do thru mdelta because of interface between inside and outside of region
       for (int m = 0; m < ncorner; m++) {
         if (multi_val_flag) {
           for (int n = 0; n < nmultiv; n++) {
             if (mvalues[icell][m][n] <= thresh)
-              mdelta[icell][m][n] = (fillvalue-mvalues[icell][m][n])/ncorner;
+              mvalues[icell][m][n] = fillvalue;
           }
         } else {
           if (cvalues[icell][m] <= thresh)
-            cdelta[icell][m] = (fillvalue-cvalues[icell][m])/ncorner;;
+            cvalues[icell][m] = fillvalue;
         }
       } // END corners
-
     } // END cells
 
-    if (multi_val_flag) sync_multiv();
-    else sync();
+    sync_max();
 
-    //for (int icell = 0; icell < nglocal; icell++) {
-    //  if (!(cinfo[icell].mask & groupbit)) continue;
-    //  for (int m = 0; m < ncorner; m++)
-    //    printf("[%i][%i] - %4.3e\n", icell, m, cvalues[icell][m]);
-    //} // END cells
+    /*for (int icell = 0; icell < nglocal; icell++) {
+      if (!(cinfo[icell].mask & groupbit)) continue;
+      for (int m = 0; m < ncorner; m++) {
+        if (multi_val_flag) {
+          for (int n = 0; n < nmultiv; n++)
+            if (mvalues[icell][m][n] < 255.0)
+              printf("[%i][%i] - %4.3e\n", icell, m, mvalues[icell][m][n]);
+        } else {
+            if (cvalues[icell][m] < 255.0)
+          printf("[%i][%i] - %4.3e\n", icell, m, cvalues[icell][m]);
+        }
+      } // END corners
+        
+    } // END cells*/
   }
 
   // push corner pt values with fully external/internal neighbors to 0 or 255
@@ -560,7 +564,6 @@ void FixAblate::end_of_step()
   // set per-cell delta vector randomly or from compute/fix source
 
   if (which == RANDOM) set_delta_random();
-  else if (which == UNIFORM) set_delta_uniform();
   else set_delta();
 
   // various decrement and sync routines depending on:
@@ -969,52 +972,6 @@ void FixAblate::set_delta_random()
 }
 
 /* ----------------------------------------------------------------------
-   set per-cell delta vector uniformly
-   celldelta = maxrandom
-   scale = fraction of cells that are decremented
-------------------------------------------------------------------------- */
-
-void FixAblate::set_delta_uniform()
-{
-  int nin;
-  Grid::ChildCell *cells = grid->cells;
-  Grid::ChildInfo *cinfo = grid->cinfo;
-
-  // enforce same decrement no matter who owns which cells
-  // NOTE: could change this at some point to use differnet RNG for each proc
-
-  for (int icell = 0; icell < nglocal; icell++) {
-    if (!(cinfo[icell].mask & groupbit)) continue;
-    if (cells[icell].nsplit <= 0) continue;
-
-    // only ablate surfaces with a surface element (not fully inside or outside)
-
-    nin = 0;
-    for (int i = 0; i < ncorner; i++) {
-      if (multi_val_flag) {
-        if (mvalues[icell][i][0] > thresh) nin++;
-      } else {
-        if (cvalues[icell][i] > thresh) nin++;
-      }
-    }
-
-    if (nin == 0 || nin == ncorner) celldelta[icell] = 0.0;
-    else celldelta[icell] = -maxrandom*scale;
-  }
-
-  // total decrement for output
-
-  double sum = 0.0;
-  for (int icell = 0; icell < nglocal; icell++) {
-    if (!(cinfo[icell].mask & groupbit)) continue;
-    if (cells[icell].nsplit <= 0) continue;
-    sum += celldelta[icell];
-  }
-
-  MPI_Allreduce(&sum,&sum_delta,1,MPI_DOUBLE,MPI_SUM,world);
-}
-
-/* ----------------------------------------------------------------------
    set per-cell delta vector from compute/fix/variable source
    celldelta = nevery * scale * source-value
    NOTE: how does this work for split cells? should only do parent split?
@@ -1280,6 +1237,100 @@ void FixAblate::sync()
       else cvalues[icell][i] += total;
     } // end corners
   } // end cells
+}
+
+/* ----------------------------------------------------------------------
+   sync all copies of corner points values for all owned grid cells
+   algorithm:
+     comm my cdelta values that are shared by neighbor
+     each corner point is shared by N cells, less on borders
+     dsum = sum of decrements to that point by all N cells
+     newvalue = MAX(oldvalue-dsum,0)
+   all N copies of corner pt are set to newvalue
+     in numerically consistent manner (same order of operations)
+------------------------------------------------------------------------- */
+
+void FixAblate::sync_max()
+{
+  int i,j,ix,iy,iz,ixfirst,iyfirst,izfirst,jx,jy,jz;
+  int icell,jcell,jcorner,pushflag;
+  double maxval[6];
+
+  comm_neigh_corners(CVALUE);
+
+  // perform push of corner pt values for all my owned grid cells
+  //   by checking corner pt values of all cells that share same corner pt
+  // if all surrounding corner pts are > threshold, push corner pt -> 255
+  // if all surrounding corner pts are < threshold, push corner pt -> 0
+
+  Grid::ChildCell *cells = grid->cells;
+  Grid::ChildInfo *cinfo = grid->cinfo;
+
+  for (icell = 0; icell < nglocal; icell++) {
+    if (!(cinfo[icell].mask & groupbit)) continue;
+    if (cells[icell].nsplit <= 0) continue;
+
+    ix = ixyz[icell][0];
+    iy = ixyz[icell][1];
+    iz = ixyz[icell][2];
+
+    // loop over corner points
+
+    for (i = 0; i < ncorner; i++) {
+
+      // ixyz first = offset from icell of lower left cell of 2x2x2 stencil
+      //              that shares the Ith corner point
+
+      ixfirst = (i % 2) - 1;
+      iyfirst = (i/2 % 2) - 1;
+      if (dim == 2) izfirst = 0;
+      else izfirst = (i / 4) - 1;
+
+      // loop over 2x2x2 stencil of cells that share the corner point
+      // also works for 2d, since izfirst = 0
+
+      maxval[0] = maxval[1] = maxval[2] = 0.0;
+      maxval[3] = maxval[4] = maxval[5] = 0.0;
+      jcorner = ncorner;
+
+      for (jz = izfirst; jz <= izfirst+1; jz++) {
+        for (jy = iyfirst; jy <= iyfirst+1; jy++) {
+          for (jx = ixfirst; jx <= ixfirst+1; jx++) {
+            jcorner--;
+
+            // check if neighbor cell is within bounds of ablate grid
+
+            if (ix+jx < 1 || ix+jx > nx) continue;
+            if (iy+jy < 1 || iy+jy > ny) continue;
+            if (iz+jz < 1 || iz+jz > nz) continue;
+
+            // jcell = local index of (jx,jy,jz) neighbor cell of icell
+
+            jcell = walk_to_neigh(icell,jx,jy,jz);
+
+            if (multi_val_flag) {
+              for (j = 0; j < nmultiv; j++) {
+                if (jcell < nglocal)
+                  maxval[j] = MAX(maxval[j],mvalues[jcell][jcorner][j]);
+                else
+                  maxval[j] = MAX(maxval[j],mdelta_ghost[jcell-nglocal][jcorner][j]);
+              }
+            } else {
+              if (jcell < nglocal) maxval[0] = MAX(maxval[0],cvalues[jcell][jcorner]);
+              else maxval[0] = MAX(maxval[0],cdelta_ghost[jcell-nglocal][jcorner]);
+            }
+
+          } // END jx
+        } // END jy
+      } // END jz
+
+      if (multi_val_flag) {
+        for (j = 0; j < nmultiv; j++)
+          mvalues[icell][i][j] = maxval[j];
+      } else cvalues[icell][i] = maxval[0];
+
+    } // END corners
+  } // END cells
 }
 
 /* ----------------------------------------------------------------------
@@ -1562,7 +1613,6 @@ void FixAblate::comm_neigh_corners(int which)
       }
 
       nsend++;
-
     }
   }
 
@@ -2017,11 +2067,13 @@ void FixAblate::process_args(int narg, char **arg)
       if (iarg+3 > narg) error->all(FLERR,"Invalid fix_ablate command");
       // need check here that the region is not larger than the fix_ablate region
       int fillgroup = grid->find_group(arg[iarg+1]);
-      if (fillgroup < 0) error->one(FLERR,"Could not find fix ablate group ID");
+      if (fillgroup < 0) error->all(FLERR,"Could not find fix ablate group ID");
       fillgroupbit = grid->bitmask[fillgroup];
       fillvalue = atof(arg[iarg+2]);
-      if (fillvalue >= 255.0)
-        error->warning(FLERR,"Fill value equal to maximum");
+      if (fillvalue <= 0 || fillvalue >= 255.0) {
+        fillvalue = 255.0;
+        error->warning(FLERR,"Fill value defaulting to max value");
+      }
       fillflag = 1;
       iarg += 3;
     } else if (strcmp(arg[iarg],"factor") == 0) {
