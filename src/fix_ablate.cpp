@@ -215,7 +215,7 @@ FixAblate::FixAblate(SPARTA *sparta, int narg, char **arg) :
   ixyz = NULL;
   mcflags = NULL;
   celldelta = NULL;
-  cellfactor = NULL;
+  cornerfactor = NULL;
   cellarea = NULL;
   cellarea_ghost = NULL;
   cdelta = NULL;
@@ -280,7 +280,7 @@ FixAblate::~FixAblate()
   memory->destroy(mcflags);
 
   memory->destroy(celldelta);
-  memory->destroy(cellfactor);
+  memory->destroy(cornerfactor);
   memory->destroy(cellarea);
   memory->destroy(cellarea_ghost);
   memory->destroy(cdelta);
@@ -424,41 +424,48 @@ void FixAblate::store_corners(int nx_caller, int ny_caller, int nz_caller,
     for (int icell = 0; icell < nglocal; icell++) {
       if (!(cinfo[icell].mask & groupbit)) continue;
 
-      cavg = 0;
       for (int m = 0; m < ncorner; m++) {
         if (multi_val_flag) {
-          for (int n = 0; n < nmultiv; n++)
-            cavg += mvalues[icell][m][n];
-        } else cavg += cvalues[icell][m];
-      }
-      if (multi_val_flag) cavg /= (nmultiv*ncorner);
-      else cavg /= ncorner;
+          cavg = 0.0;
+          for (int n = 0; n < nmultiv; n++) cavg += mvalues[icell][m][n];
+          cavg /= nmultiv;
+        } else cavg = cvalues[icell][m];
 
-      for (int i = 0; i < nprefactor; i++) {
-        if (cavg > user_factor[i][0]) {
-          cellfactor[icell] = user_factor[i][1];
-          break;
-        }
-      }
+        for (int i = 0; i < nprefactor; i++) {
+          if (cavg > user_factor[i][0]) {
+            cornerfactor[icell][m] = user_factor[i][1];
+            break;
+          }
+        } // END nprefactor
+      } // END corners
     } // END cells
   } else {
     for (int icell = 0; icell < nglocal; icell++)
-      cellfactor[icell] = scale;
+      for (int m = 0; m < ncorner; m++)
+        cornerfactor[icell][m] = scale;
   }
 
   // set all values to either min or max value
 
   if (minmaxflag) {
+    if (minmaxthresh < 0.0) {
+      error->warning(FLERR,"Minmax threshold set to default value of 127.5");
+      minmaxthresh = 127.5;
+    }
     for (int icell = 0; icell < nglocal; icell++) {
       if (!(cinfo[icell].mask & groupbit)) continue;
       for (int m = 0; m < ncorner; m++) {
         if (multi_val_flag) {
-          for (int n = 0; n < nmultiv; n++) {
-            if (mvalues[icell][m][n] < thresh) mvalues[icell][m][n] = 0.0;
-            else mvalues[icell][m][n] = 255.0;
-          }
+          double mavg = 0.0;
+          for (int n = 0; n < nmultiv; n++) mavg += mvalues[icell][m][n];
+          mavg /= nmultiv;
+
+          if (mavg < minmaxthresh)
+            for (int n = 0; n < nmultiv; n++) mvalues[icell][m][n] = 0.0;
+          else
+            for (int n = 0; n < nmultiv; n++) mvalues[icell][m][n] = 255.0;
         } else {
-          if (cvalues[icell][m] < thresh) cvalues[icell][m] = 0.0;
+          if (cvalues[icell][m] < minmaxthresh) cvalues[icell][m] = 0.0;
           else cvalues[icell][m] = 255.0;
         }
       } // END corners
@@ -471,13 +478,15 @@ void FixAblate::store_corners(int nx_caller, int ny_caller, int nz_caller,
     for (int icell = 0; icell < nglocal; icell++) {
       if (!(cinfo[icell].mask & fillgroupbit)) continue;
 
-      // need to do thru mdelta because of interface between inside and outside of region
       for (int m = 0; m < ncorner; m++) {
         if (multi_val_flag) {
-          for (int n = 0; n < nmultiv; n++) {
-            if (mvalues[icell][m][n] <= thresh)
-              mvalues[icell][m][n] = fillvalue;
-          }
+          double avg_mv = 0.0;
+          for (int n = 0; n < nmultiv; n++)
+              avg_mv += mvalues[icell][m][n];
+          avg_mv /= nmultiv;
+          if (avg_mv <= thresh)
+            for (int n = 0; n < nmultiv; n++) mvalues[icell][m][n] = fillvalue;
+
         } else {
           if (cvalues[icell][m] <= thresh)
             cvalues[icell][m] = fillvalue;
@@ -572,9 +581,9 @@ void FixAblate::end_of_step()
 
   int Nout, allNout;
   if (multi_dec_flag) {
-    if (sphereflag) {
-      compute_surface_area();
-      set_total_area();
+    //if (sphereflag) {
+      //compute_surface_area();
+      //set_total_area();
       decrement_sphere();
 
       if (carryflag) {
@@ -599,7 +608,8 @@ void FixAblate::end_of_step()
         }
       } else sync_sphere(1);
 
-    } else {
+    // obsolte
+    /*} else {
       if (multi_val_flag) {
         decrement_multiv_multid_outside();
         sync_multiv_multid_outside();
@@ -611,15 +621,18 @@ void FixAblate::end_of_step()
         decrement_multid_inside();
         sync_multid_inside();
       }
-    }
+    }*/
   } else {
-    if (multi_val_flag) {
+    decrement();
+    sync();
+    // obsolete
+    /*if (multi_val_flag) {
       decrement_multiv();
       sync_multiv();
     } else {
       decrement();
       sync();
-    }
+    }*/
   }
 
   // output loss to a file
@@ -1000,13 +1013,13 @@ void FixAblate::set_delta()
     if (argindex == 0) {
       double *cvec = c->vector_grid;
       for (i = 0; i < nglocal; i++)
-        celldelta[i] = prefactor * cvec[i] * cellfactor[i];
+        celldelta[i] = prefactor * cvec[i];
     // if only tracking a single one (which is stupid choice to give)
     } else {
       double **carray = c->array_grid;
       int im1 = argindex - 1;
       for (i = 0; i < nglocal; i++)
-        celldelta[i] = prefactor * carray[i][im1] * cellfactor[i];
+        celldelta[i] = prefactor * carray[i][im1];
     }
 
   } else if (which == FIX) {
@@ -1019,17 +1032,17 @@ void FixAblate::set_delta()
         int nrxn = f->size_per_grid_cols;
         for (i = 0; i < nglocal; i++)
           for (j = 0; j < nrxn; j++)
-            celldelta[i] += prefactor * farray[i][j] * cellfactor[i];
+            celldelta[i] += prefactor * farray[i][j];
       } else { // only one
         double *fvec = f->vector_grid;
         for (i = 0; i < nglocal; i++)
-          celldelta[i] = prefactor * fvec[i] * cellfactor[i];
+          celldelta[i] = prefactor * fvec[i];
       }
     } else {
       double **farray = f->array_grid;
       int im1 = argindex - 1;
       for (i = 0; i < nglocal; i++)
-        celldelta[i] = prefactor * farray[i][im1] * cellfactor[i];
+        celldelta[i] = prefactor * farray[i][im1];
     }
 
   } else if (which == VARIABLE) {
@@ -1041,7 +1054,7 @@ void FixAblate::set_delta()
 
     input->variable->compute_grid(ivariable,vbuf,1,0);
     for (i = 0; i < nglocal; i++)
-      celldelta[i] = prefactor * vbuf[i] * cellfactor[i];
+      celldelta[i] = prefactor * vbuf[i];
   }
 
   // NOTE: this does not get invoked on step 100,
@@ -1743,8 +1756,8 @@ int FixAblate::pack_grid_one(int icell, char *buf, int memflag)
     }
   }
 
-  if (memflag) memcpy(ptr,avalues[icell],ncorner*sizeof(double));
-  ptr += ncorner*sizeof(double);
+  //if (memflag) memcpy(ptr,avalues[icell],ncorner*sizeof(double));
+  //ptr += ncorner*sizeof(double);
 
   if (tvalues_flag) {
     if (memflag) {
@@ -1789,8 +1802,8 @@ int FixAblate::pack_grid_one(int icell, char *buf, int memflag)
         }
       }
 
-      if (memflag) memcpy(ptr,avalues[jcell],sizeof(double));
-      ptr += ncorner*sizeof(double);
+      //if (memflag) memcpy(ptr,avalues[jcell],sizeof(double));
+      //ptr += ncorner*sizeof(double);
     }
   }
 
@@ -1820,8 +1833,8 @@ int FixAblate::unpack_grid_one(int icell, char *buf)
     }
   }
 
-  memcpy(avalues[icell],ptr,ncorner*sizeof(double));
-  ptr += ncorner*sizeof(double);
+  //memcpy(avalues[icell],ptr,ncorner*sizeof(double));
+  //ptr += ncorner*sizeof(double);
 
   if (tvalues_flag) {
     double *dbuf = (double *) ptr;
@@ -1885,7 +1898,7 @@ void FixAblate::copy_grid_one(int icell, int jcell)
     for (int j = 0; j < ncorner; j++)
       memcpy(mvalues[jcell][j],mvalues[icell][j],nmultiv*sizeof(double));
   }
-  memcpy(avalues[jcell],avalues[icell],ncorner*sizeof(double));
+  //memcpy(avalues[jcell],avalues[icell],ncorner*sizeof(double));
 
   if (tvalues_flag) tvalues[jcell] = tvalues[icell];
 
@@ -1952,17 +1965,16 @@ void FixAblate::grow_percell(int nnew)
   if (multi_val_flag) memory->grow(mvalues,maxgrid,ncorner,nmultiv,"ablate:mvalues");
   else memory->grow(cvalues,maxgrid,ncorner,"ablate:cvalues");
   if (tvalues_flag) memory->grow(tvalues,maxgrid,"ablate:tvalues");
-  memory->grow(avalues,maxgrid,ncorner,"ablate:avalues");
+  //memory->grow(avalues,maxgrid,ncorner,"ablate:avalues");
   memory->grow(ixyz,maxgrid,3,"ablate:ixyz");
   memory->grow(mcflags,maxgrid,4,"ablate:mcflags");
   memory->grow(celldelta,maxgrid,"ablate:celldelta");
-  memory->grow(cellfactor,maxgrid,"ablate:cellfactor");
   memory->grow(cellarea,maxgrid,"ablate:cellarea");
   if (multi_val_flag) memory->grow(mdelta,maxgrid,ncorner,nmultiv,"ablate:mdelta");
   else memory->grow(cdelta,maxgrid,ncorner,"ablate:cdelta");
   if (multi_dec_flag) memory->grow(nvert,maxgrid,ncorner,"ablate:nvert");
   memory->grow(numsend,maxgrid,"ablate:numsend");
-  memory->grow(cellfactor,maxgrid,"ablate:cellfactor");
+  memory->grow(cornerfactor,maxgrid,ncorner,"ablate:cornerfactor");
 
   array_grid = cvalues;
 }
@@ -2040,6 +2052,7 @@ void FixAblate::process_args(int narg, char **arg)
   mindist = 0.0;
   multi_dec_flag = 0;
   minmaxflag = 0;
+  minmaxthresh = 0;
   carryflag = 0;
   factorflag = 0;
   fillflag = 0;
@@ -2058,8 +2071,10 @@ void FixAblate::process_args(int narg, char **arg)
       multi_dec_flag = 1;
       iarg++;
     } else if (strcmp(arg[iarg],"minmax") == 0) {
+      if (iarg+2 > narg) error->all(FLERR,"Invalid fix_ablate command");
       minmaxflag = 1;
-      iarg++;
+      minmaxthresh = atof(arg[iarg+1]);
+      iarg += 2;
     } else if (strcmp(arg[iarg],"carry") == 0) {
       carryflag = 1;
       iarg++;
@@ -2114,7 +2129,7 @@ double FixAblate::memory_usage()
   double bytes = 0.0;
   if (multi_val_flag) bytes += maxgrid*ncorner*nmultiv * sizeof(double); // mvalues
   else bytes += maxgrid*ncorner * sizeof(double);   // cvalues
-  bytes += maxgrid*ncorner * sizeof(double);   // avalues
+  //bytes += maxgrid*ncorner * sizeof(double);   // avalues
   if (tvalues_flag) bytes += maxgrid * sizeof(int);   // tvalues
   bytes += maxgrid*3 * sizeof(int);            // ixyz
   // NOTE: add for mcflags if keep

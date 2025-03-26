@@ -195,7 +195,7 @@ void FixAblate::decrement_sphere()
 
   int nsurf;
   int iupdate[ncorner];
-  double ninter;
+  int Nin;
 
   double vol_fac;
   if (dim == 2) vol_fac = 3.0;
@@ -220,8 +220,7 @@ void FixAblate::decrement_sphere()
     else mark_corners_3d(icell);
 
     // count number of inside interface corners
-    int Nin = 0;
-    total_area = 0.0;
+    Nin = 0;
     for (i = 0; i < ncorner; i++) {
       iupdate[i] = 0;
       if (refcorners[i] != 1) continue;
@@ -229,19 +228,18 @@ void FixAblate::decrement_sphere()
       // check if inside corner has neighboring outside interface
       neighbors = corner_neighbor[i];
 
-      ninter = 0;
+      int ninter = 0;
       for (k = 0; k < dim; k++)
         if (refcorners[neighbors[k]] == 0) ninter++;
 
       if (ninter == 0) continue;
       iupdate[i] = 1;
-      total_area += pow(avalues[icell][i],vol_fac);
       Nin++;
     }
 
-    //if (Nin == 0) error->one(FLERR,"No points found?");
-    // should never have to be used
+    // If this is ever called, need more testing!
     if (Nin == 0) {
+      error->warning(FLERR,"No points found?");
       for (i = 0; i < ncorner; i++) {
         if (multi_val_flag) {
           for (j = 0; j < nmultiv; j++) mvalues[icell][i][j] = 0.0;
@@ -251,21 +249,16 @@ void FixAblate::decrement_sphere()
 
     for (i = 0; i < ncorner; i++) {
       if (iupdate[i]) {
+        perout = total/Nin;
 /*-------------------------------------------------------------------*/
-        if (total > 0.0) {
-          // total change proportional to surface area around that corner
-          double iarea = pow(avalues[icell][i],vol_fac);
-          perout = total * (iarea / total_area);
-          if (iarea > total_area) error->one(FLERR,"Area miscalculated");
-        } else perout = total/Nin;
-
         if (multi_val_flag) {
           if (total < 0) {
             for (j = 0; j < nmultiv; j++) mdelta[icell][i][j] += perout;
           } else if (total > 0) {
-            if (carryflag) {
+            error->all(FLERR,"Deposition not ready");
+            if (carryflag)
               for (j = 0; j < nmultiv; j++) mdelta[icell][i][j] += perout;
-            } else {
+            else {
               double dc;
               for (j = 0; j < nmultiv; j++) {
                 dc = 255.0-mvalues[icell][i][j];
@@ -277,7 +270,7 @@ void FixAblate::decrement_sphere()
               for (k = 0; k < dim; k++) {
                 dc = 255.0-mvalues[icell][i][k];
                 if (perout > dc) {
-                  jc = neighbors[k];              
+                  jc = neighbors[k];
                   if (refcorners[jc] == 0) {
                     for (l = 0; l < nmultiv; l++)
                       mdelta[icell][jc][l] += (perout-dc)/nmultiv;
@@ -291,6 +284,7 @@ void FixAblate::decrement_sphere()
           if (total < 0) {
             cdelta[icell][i] += perout;
           } else if (total > 0) {
+            error->all(FLERR,"Deposition not ready");
             if (carryflag) cdelta[icell][i] += perout;
             // need below otherwise will stop growing
             else {
@@ -300,7 +294,7 @@ void FixAblate::decrement_sphere()
                 double dc = 255.0-cvalues[icell][i];
                 // find neighbors which have "space"
                 neighbors = corner_neighbor[i];
-                ninter = 0;
+                int ninter = 0;
                 for (k = 0; k < dim; k++) {
                   jc = neighbors[k];              
                   if (refcorners[jc] == 0) ninter++;
@@ -383,6 +377,10 @@ int FixAblate::sync_sphere(int bound)
         } // end jy
       } // end jz
 
+      // scale by material prop
+      if (factorflag)
+        for (j = 0; j < nmultiv; j++) total[j] *= cornerfactor[icell][i];
+
       if (multi_val_flag) {
         for (j = 0; j < nmultiv; j++) {
           mvalues[icell][i][j] += total[j];
@@ -464,18 +462,19 @@ int FixAblate::sync_sphere(int bound)
             else cvalues[icell][i] = thresh+EPSILON;
           } else if (cvalues[icell][i] > 255.0) cvalues[icell][i] = 255.0;
         }
-      } // if multi
+      } // END if multi
 
-    } // end corners
+    } // END corners
 
     // TODO : DEBUG
-    if (bound) {
+    /*if (bound) {
     for (i = 0; i < 4; i++) {
     for (j = 0; j < 4; j++) {
     if (mvalues[icell][i][j] > 255.0) {
-      printf("bound? %i; icell: %i; [%i][%i] - %4.3e\n", bound, icell, i, j, mvalues[icell][i][j]);
+      printf("bound? %i; icell: %i; [%i][%i] - %4.3e\n",
+        bound, icell, i, j, mvalues[icell][i][j]);
       error->one(FLERR,"Bad sync");
-    }}}}
+    }}}}*/
 
   } // end cells
 

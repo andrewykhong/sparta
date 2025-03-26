@@ -61,6 +61,7 @@ class FixAblate : public Fix {
   int multi_val_flag;
   int multi_dec_flag;
   int minmaxflag;
+  double minmaxthresh;
   int sphereflag;
   int ncorner;
   int nmultiv;
@@ -95,7 +96,7 @@ class FixAblate : public Fix {
   double **nvert;          // number of vertices around each corner
   double **nvert_ghost;    // ditto for my ghost cells communicated to me
 
-  double *cellfactor;      // per-cell prefactor for delta
+  double **cornerfactor;    // per-corner prefactor for delta
   double **user_factor;    // user-requested per-cell prefactor ranges
   int nprefactor;
   int factorflag;
