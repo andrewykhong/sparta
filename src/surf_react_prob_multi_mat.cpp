@@ -22,6 +22,8 @@
 #include "math_extra.h"
 #include "memory.h"
 #include "error.h"
+#include "grid.h"
+#include <unordered_set>
 
 using namespace SPARTA_NS;
 
@@ -104,6 +106,11 @@ SurfReactProbMultiMat::~SurfReactProbMultiMat()
 
 void SurfReactProbMultiMat::init()
 {
+  // check there is per-grid-cell array
+  index_cell_react = grid->find_custom((char *) "cell_react");
+  if (index_cell_react < 0)
+    error->all(FLERR,"Fix ablate did not specify react option");
+
   SurfReact::init();
   init_reactions();
 }
@@ -120,6 +127,14 @@ int SurfReactProbMultiMat::react(Particle::OnePart *&ip, int, double *,
   int n = reactions[ip->ispecies].n;
   if (n == 0) return 0;
 
+  // cell particle is currently in (updated in update.cpp)
+  int icell = ip->icell;
+
+  // get mask for this cell
+  int *cell_react;
+  cell_react = grid->eivec[grid->ewhich[index_cell_react]];
+  int cell_mask = cell_react[icell];
+
   int *list = reactions[ip->ispecies].list;
 
   // probablity to compare to reaction probability
@@ -134,10 +149,11 @@ int SurfReactProbMultiMat::react(Particle::OnePart *&ip, int, double *,
   //   repoint ip to new particles data struct if reallocated
 
   OneReaction *r;
-
+  int active;
   for (int i = 0; i < n; i++) {
     r = &rlist[list[i]];
-    react_prob += r->coeff[0];
+    active = r->mask == cell_mask ? 1 : 0;
+    react_prob += r->coeff[0]*active;
 
     if (react_prob > random_prob) {
       nsingle++;
@@ -218,6 +234,7 @@ void SurfReactProbMultiMat::init_reactions()
   for (int m = 0; m < nlist_prob; m++) {
     OneReaction *r = &rlist[m];
     r->active = 1;
+
     for (int i = 0; i < r->nreactant; i++) {
       r->reactants[i] = particle->find_species(r->id_reactants[i]);
       if (r->reactants[i] < 0) {
@@ -233,6 +250,14 @@ void SurfReactProbMultiMat::init_reactions()
       }
     }
   }
+
+  // count number of unique masks
+  std::unordered_set<int> MyMasks;
+  for (int m = 0; m < nlist_prob; m++) {
+    OneReaction *r = &rlist[m];
+    MyMasks.insert(r->mask);
+  }
+  int nmask = MyMasks.size();
 
   // count possible reactions for each species
 
@@ -278,13 +303,18 @@ void SurfReactProbMultiMat::init_reactions()
 
   // check that summed reaction probabilities for each species <= 1.0
 
+  int imask;
   double sum;
-  for (int i = 0; i < nspecies; i++) {
-    sum = 0.0;
-    for (int j = 0; j < reactions[i].n; j++)
-      sum += rlist[reactions[i].list[j]].coeff[0];
-    if (sum > 1.0)
-      error->all(FLERR,"Surface reaction probability for a species > 1.0");
+  for (const int& imask : MyMasks) {
+    for (int i = 0; i < nspecies; i++) {
+      sum = 0.0;
+      for (int j = 0; j < reactions[i].n; j++) {
+        if (rlist[reactions[i].list[j]].mask == imask)
+          sum += rlist[reactions[i].list[j]].coeff[0];
+      }
+      if (sum > 1.0)
+        error->all(FLERR,"Surface reaction probability for a species > 1.0");
+    }
   }
 }
 
@@ -419,7 +449,7 @@ void SurfReactProbMultiMat::readfile(char *fname)
     if (word[0] == 'S' || word[0] == 's') r->style = SIMPLE;
     else error->all(FLERR,"Invalid reaction style in file");
 
-    if (r->style == SIMPLE) r->ncoeff = 2;
+    if (r->style == SIMPLE) r->ncoeff = 1;
 
     for (int i = 0; i < r->ncoeff; i++) {
       word = strtok(NULL," \t\n");

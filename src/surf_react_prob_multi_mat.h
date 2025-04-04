@@ -59,6 +59,8 @@ class SurfReactProbMultiMat : public SurfReact {
   int nlist_prob;                  // # of reactions read from file
   int maxlist_prob;                // max # of reactions in rlist
 
+  int index_cell_react;       // the index for custom per-grid
+
   // possible reactions a reactant species is part of
 
   struct ReactionI {

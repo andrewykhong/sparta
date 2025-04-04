@@ -2211,7 +2211,8 @@ void FixAblate::process_args(int narg, char **arg)
       fillvalue = atof(arg[iarg+2]);
       if (fillvalue <= 0 || fillvalue >= 255.0) {
         fillvalue = 255.0;
-        error->warning(FLERR,"Fill value defaulting to max value");
+        if (comm->me == 0)
+          error->warning(FLERR,"Fill value defaulting to max value");
       }
       fillflag = 1;
       iarg += 3;
