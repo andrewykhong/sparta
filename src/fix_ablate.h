@@ -96,14 +96,19 @@ class FixAblate : public Fix {
   double **nvert;          // number of vertices around each corner
   double **nvert_ghost;    // ditto for my ghost cells communicated to me
 
-  double **cornerfactor;    // per-corner prefactor for delta
-  double **user_factor;    // user-requested per-cell prefactor ranges
-  int nprefactor;
-  int factorflag;
+  int rhoflag;           // flag for setting per-corner mass densities
+  int nrho;              // number of densities
+  double **corner_rho;   // per-corner density
+  double **user_phi_rho; // user-requested per-corner density ranges
 
-  int fillgroupbit;
-  int fillflag;
-  double fillvalue;
+  int fillflag;          // flag to fill empty corners of cells
+  int fillgroupbit;      // mask for which cells to fill
+  double fillvalue;      // value to fill empty cells
+
+  int reactflag;           // flag for setting per-grid surface reaction models
+  int nreact;              // number of surface models
+  int index_cell_react;    // custom per-cell reaction model
+  double **user_phi_react; // user-requested per-cell reaction model types
 
   int maxgrid;             // max size of per-cell vectors/arrays
   int maxghost;            // max size of cdelta_ghost

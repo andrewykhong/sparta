@@ -197,9 +197,9 @@ void FixAblate::decrement_sphere()
   int iupdate[ncorner];
   int Nin;
 
-  double vol_fac;
-  if (dim == 2) vol_fac = 3.0;
-  else vol_fac = 3.0;
+  //double vol_fac;
+  //if (dim == 2) vol_fac = 3.0;
+  //else vol_fac = 3.0;
 
   for (int icell = 0; icell < nglocal; icell++) {
     if (!(cinfo[icell].mask & groupbit)) continue;
@@ -378,8 +378,8 @@ int FixAblate::sync_sphere(int bound)
       } // end jz
 
       // scale by material prop
-      if (factorflag)
-        for (j = 0; j < nmultiv; j++) total[j] *= cornerfactor[icell][i];
+      if (rhoflag)
+        for (j = 0; j < 6; j++) total[j] *= corner_rho[icell][i];
 
       if (multi_val_flag) {
         for (j = 0; j < nmultiv; j++) {

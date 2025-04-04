@@ -54,6 +54,8 @@ enum{NCHILD,NPARENT,NUNKNOWN,NPBCHILD,NPBPARENT,NPBUNKNOWN,NBOUND};  // Update
 // remove if fix particles-inside-surfs issue
 enum{PKEEP,PINSERT,PDONE,PDISCARD,PENTRY,PEXIT,PSURF};  // several files
 
+enum{INT,DOUBLE};                      // several files
+
 // NOTES
 // should I store one value or 8 per cell
 // how to preserve svalues and set type of new surfs,
@@ -215,7 +217,7 @@ FixAblate::FixAblate(SPARTA *sparta, int narg, char **arg) :
   ixyz = NULL;
   mcflags = NULL;
   celldelta = NULL;
-  cornerfactor = NULL;
+  corner_rho = NULL;
   cellarea = NULL;
   cellarea_ghost = NULL;
   cdelta = NULL;
@@ -264,6 +266,16 @@ FixAblate::FixAblate(SPARTA *sparta, int narg, char **arg) :
     bigint nvalid = (update->ntimestep/nevery)*nevery + nevery;
     modify->addstep_compute_all(nvalid);
   }
+
+  // create per-grid custom array to match reaction models
+  // needs to be custom so surf_react can access this to
+
+  if (reactflag) {
+    index_cell_react = grid->find_custom((char *) "cell_react");
+    if (index_cell_react >= 0)
+      error->all(FLERR,"Fix ablate per-grid custom array already exists");
+    index_cell_react = grid->add_custom((char *) "cell_react", INT, 0);
+  }
 }
 
 /* ---------------------------------------------------------------------- */
@@ -280,7 +292,7 @@ FixAblate::~FixAblate()
   memory->destroy(mcflags);
 
   memory->destroy(celldelta);
-  memory->destroy(cornerfactor);
+  memory->destroy(corner_rho);
   memory->destroy(cellarea);
   memory->destroy(cellarea_ghost);
   memory->destroy(cdelta);
@@ -305,6 +317,8 @@ FixAblate::~FixAblate()
   delete msp;
 
   delete random;
+
+  grid->remove_custom(index_cell_react);
 }
 
 /* ---------------------------------------------------------------------- */
@@ -417,9 +431,10 @@ void FixAblate::store_corners(int nx_caller, int ny_caller, int nz_caller,
       static_cast<int> ((cells[icell].lo[2]-cornerlo[2]) / xyzsize[2] + 0.5) + 1;
   }
 
-  // set prefactor
+  // set prefactor (interpoate between boundas)
 
-  if (factorflag) {
+  if (rhoflag) {
+    int ifac;
     double cavg;
     for (int icell = 0; icell < nglocal; icell++) {
       if (!(cinfo[icell].mask & groupbit)) continue;
@@ -431,18 +446,98 @@ void FixAblate::store_corners(int nx_caller, int ny_caller, int nz_caller,
           cavg /= nmultiv;
         } else cavg = cvalues[icell][m];
 
-        for (int i = 0; i < nprefactor; i++) {
-          if (cavg > user_factor[i][0]) {
-            cornerfactor[icell][m] = user_factor[i][1];
+        // find what bounds straddle the corner point value
+        // bounds sorted from greatest to smallest
+        ifac = -1;
+        for (int i = 0; i < nrho; i++) {
+          if (cavg > user_phi_rho[i][0]) {
+            ifac = i;
             break;
           }
-        } // END nprefactor
+        } // END nrho
+
+        // edge case
+        if (ifac < 0) ifac = nrho;
+
+        // set densities
+        if (ifac == 0) corner_rho[icell][m] = user_phi_rho[0][1];
+        else if (ifac == nrho)
+          corner_rho[icell][m] = user_phi_rho[nrho-1][1];
+        else {
+          // factor at ifac < factor at jfac
+          int jfac = ifac-1;
+          double dx = user_phi_rho[jfac][0] - user_phi_rho[ifac][0];
+          double dy = user_phi_rho[jfac][1] - user_phi_rho[ifac][1];
+          double xfac = (cavg-user_phi_rho[ifac][0])/dx;
+          corner_rho[icell][m] = user_phi_rho[ifac][1] + dy*xfac;
+        }
       } // END corners
     } // END cells
   } else {
     for (int icell = 0; icell < nglocal; icell++)
       for (int m = 0; m < ncorner; m++)
-        cornerfactor[icell][m] = scale;
+        corner_rho[icell][m] = scale;
+  }
+
+  // set mask for each cell to match to reaction set
+
+  if (reactflag) {
+    // only need if using scale-based solid->gas coupling
+    int *cell_react;
+    cell_react = grid->eivec[grid->ewhich[index_cell_react]];
+
+    int ifac;
+    double cavg;
+    for (int icell = 0; icell < nglocal; icell++) {
+      if (!(cinfo[icell].mask & groupbit)) continue;
+
+      // DEBUG
+      //for (int i = 0; i < nreact; i++)
+      //  printf("%g, %g\n", user_phi_react[i][0], user_phi_react[i][1]);
+      //error->all(FLERR,"ck");
+
+      cavg = 0.0;
+      for (int m = 0; m < ncorner; m++) {
+        if (multi_val_flag) {
+          for (int n = 0; n < nmultiv; n++) cavg += mvalues[icell][m][n];
+        } else cavg += cvalues[icell][m];
+      }
+      if (multi_val_flag) cavg /= (nmultiv*ncorner);
+      else cavg /= ncorner;
+
+      // find what bounds straddle the corner point value
+      // bounds sorted from greatest to smallest
+      ifac = -1;
+      for (int i = 0; i < nreact; i++) {
+        if (cavg > user_phi_react[i][0]) {
+          ifac = i;
+          break;
+        }
+      } // END nreact
+
+      // edge case
+      if (ifac < 0) ifac = nreact;
+
+      // set reaction models
+      if (ifac == 0)
+        cell_react[icell] = static_cast<int>(user_phi_react[0][1]);
+      else if (ifac == nreact)
+        cell_react[icell] = static_cast<int>(user_phi_react[nreact-1][1]);
+      else {
+        int jfac = ifac-1;
+        double di = fabs(cavg-user_phi_react[ifac][0]);
+        double dj = fabs(cavg-user_phi_react[jfac][0]);
+        if (dj < di)
+          cell_react[icell] = static_cast<int>(user_phi_react[jfac][1]);
+        else
+          cell_react[icell] = static_cast<int>(user_phi_react[ifac][1]);
+      }
+
+      //if (cavg > 200.0 && cell_react[icell] != 1) error->one(FLERR,"wrong hi");
+      //if (cavg < 55.0 && cell_react[icell] != 0) error->one(FLERR,"wrong lo");
+      //if (cell_react[icell] != 0 && cell_react[icell] != 1) error->one(FLERR,"inval");
+
+    } // END cells
   }
 
   // set all values to either min or max value
@@ -1756,6 +1851,11 @@ int FixAblate::pack_grid_one(int icell, char *buf, int memflag)
     }
   }
 
+  if (rhoflag) {
+    if (memflag) memcpy(ptr,corner_rho[icell],ncorner*sizeof(double));
+    ptr += ncorner*sizeof(double);
+  }
+
   //if (memflag) memcpy(ptr,avalues[icell],ncorner*sizeof(double));
   //ptr += ncorner*sizeof(double);
 
@@ -1802,6 +1902,11 @@ int FixAblate::pack_grid_one(int icell, char *buf, int memflag)
         }
       }
 
+      if (rhoflag) {
+        if (memflag) memcpy(ptr,corner_rho[jcell],ncorner*sizeof(double));
+        ptr += ncorner*sizeof(double);
+      }
+
       //if (memflag) memcpy(ptr,avalues[jcell],sizeof(double));
       //ptr += ncorner*sizeof(double);
     }
@@ -1831,6 +1936,11 @@ int FixAblate::unpack_grid_one(int icell, char *buf)
       memcpy(mvalues[icell][j],ptr,nmultiv*sizeof(double));
       ptr += nmultiv*sizeof(double);
     }
+  }
+
+  if (rhoflag) {
+    memcpy(corner_rho[icell],ptr,ncorner*sizeof(double));
+    ptr += ncorner*sizeof(double);
   }
 
   //memcpy(avalues[icell],ptr,ncorner*sizeof(double));
@@ -1874,6 +1984,11 @@ int FixAblate::unpack_grid_one(int icell, char *buf)
         }
       }
 
+      if (rhoflag) {
+        memcpy(corner_rho[jcell],ptr,ncorner*sizeof(double));
+        ptr += ncorner*sizeof(double);
+      }
+
       //memcpy(avalues[jcell],ptr,ncorner*sizeof(double));
       //ptr += ncorner*sizeof(double);
 
@@ -1898,6 +2013,10 @@ void FixAblate::copy_grid_one(int icell, int jcell)
     for (int j = 0; j < ncorner; j++)
       memcpy(mvalues[jcell][j],mvalues[icell][j],nmultiv*sizeof(double));
   }
+
+  if (rhoflag)
+    memcpy(corner_rho[jcell],corner_rho[icell],ncorner*sizeof(double));
+
   //memcpy(avalues[jcell],avalues[icell],ncorner*sizeof(double));
 
   if (tvalues_flag) tvalues[jcell] = tvalues[icell];
@@ -1929,7 +2048,11 @@ void FixAblate::add_grid_one()
       for (int j = 0; j < nmultiv; j++)
         mvalues[nglocal][i][j] = 0.0;
   }
-  for (int i = 0; i < ncorner; i++) avalues[nglocal][i] = 0.0;
+
+  if (rhoflag)
+    for (int i = 0; i < ncorner; i++) corner_rho[nglocal][i] = 0.0;
+
+  //for (int i = 0; i < ncorner; i++) avalues[nglocal][i] = 0.0;
 
   if (tvalues_flag) tvalues[nglocal] = 0;
   ixyz[nglocal][0] = 0;
@@ -1974,7 +2097,7 @@ void FixAblate::grow_percell(int nnew)
   else memory->grow(cdelta,maxgrid,ncorner,"ablate:cdelta");
   if (multi_dec_flag) memory->grow(nvert,maxgrid,ncorner,"ablate:nvert");
   memory->grow(numsend,maxgrid,"ablate:numsend");
-  memory->grow(cornerfactor,maxgrid,ncorner,"ablate:cornerfactor");
+  if (rhoflag) memory->grow(corner_rho,maxgrid,ncorner,"ablate:corner_rho");
 
   array_grid = cvalues;
 }
@@ -2054,9 +2177,10 @@ void FixAblate::process_args(int narg, char **arg)
   minmaxflag = 0;
   minmaxthresh = 0;
   carryflag = 0;
-  factorflag = 0;
+  rhoflag = 0;
+  reactflag = 0;
   fillflag = 0;
-  user_factor = NULL;
+  user_phi_rho = NULL;
 
   int iarg = 0;
   while (iarg < narg) {
@@ -2091,15 +2215,15 @@ void FixAblate::process_args(int narg, char **arg)
       }
       fillflag = 1;
       iarg += 3;
-    } else if (strcmp(arg[iarg],"factor") == 0) {
+    } else if (strcmp(arg[iarg],"density") == 0) {
       if (iarg+2 > narg) error->all(FLERR,"Invalid read_isurf command");
-      factorflag = 1;
-      nprefactor = atof(arg[iarg+1]);
+      rhoflag = 1;
+      nrho = atof(arg[iarg+1]);
       iarg += 2;
-      memory->create(user_factor,nprefactor,2,"ablate:user_factor");
-      for (int i = 0; i < nprefactor; i++) {
-        user_factor[i][0] = atof(arg[iarg]);
-        user_factor[i][1] = atof(arg[iarg+1]);
+      memory->create(user_phi_rho,nrho,2,"ablate:user_phi_rho");
+      for (int i = 0; i < nrho; i++) {
+        user_phi_rho[i][0] = atof(arg[iarg]);
+        user_phi_rho[i][1] = atof(arg[iarg+1]);
         iarg += 2;
       }
 
@@ -2108,14 +2232,41 @@ void FixAblate::process_args(int narg, char **arg)
       int sorted = 0;
       while (!sorted) {
         sorted = 1;
-        for (int i = 0; i < nprefactor-1; i++) {
-          if(user_factor[i][0] < user_factor[i+1][0]) {
+        for (int i = 0; i < nrho-1; i++) {
+          if(user_phi_rho[i][0] < user_phi_rho[i+1][0]) {
             sorted = 0;
-            std::swap(user_factor[i][0],user_factor[i+1][0]);
-            std::swap(user_factor[i][1],user_factor[i+1][1]);
+            std::swap(user_phi_rho[i][0],user_phi_rho[i+1][0]);
+            std::swap(user_phi_rho[i][1],user_phi_rho[i+1][1]);
           }
         }
       }
+    } else if (strcmp(arg[iarg],"react") == 0) {
+
+      if (iarg+2 > narg) error->all(FLERR,"Invalid read_isurf command");
+      reactflag = 1;
+      nreact = atof(arg[iarg+1]);
+      iarg += 2;
+      memory->create(user_phi_react,nreact,2,"ablate:user_phi_react");
+      for (int i = 0; i < nreact; i++) {
+        user_phi_react[i][0] = atof(arg[iarg]);
+        user_phi_react[i][1] = atof(arg[iarg+1]);
+        iarg += 2;
+      }
+
+      // sort from largest to smallest
+      // should be small so bubble sort ok
+      int sorted = 0;
+      while (!sorted) {
+        sorted = 1;
+        for (int i = 0; i < nreact-1; i++) {
+          if(user_phi_react[i][0] < user_phi_react[i+1][0]) {
+            sorted = 0;
+            std::swap(user_phi_react[i][0],user_phi_react[i+1][0]);
+            std::swap(user_phi_react[i][1],user_phi_react[i+1][1]);
+          }
+        }
+      }
+
     } else error->all(FLERR,"Illegal fix_ablate command");
   }
 }
