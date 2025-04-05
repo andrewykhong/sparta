@@ -318,7 +318,7 @@ FixAblate::~FixAblate()
 
   delete random;
 
-  grid->remove_custom(index_cell_react);
+  //grid->remove_custom(index_cell_react);
 }
 
 /* ---------------------------------------------------------------------- */
