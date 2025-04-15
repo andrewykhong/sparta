@@ -49,7 +49,7 @@ class FixAblate : public Fix {
   double memory_usage();
 
   void store_corners(int, int, int, double *, double *,
-                     double **, double ***, int *, double, char *, int, int);
+                     double **, double ***, int *, double, char *, int);
 
   int get_sphereflag();
   int get_multivalflag();

@@ -342,7 +342,7 @@ void FixAblate::store_corners(int nx_caller, int ny_caller, int nz_caller,
                               double **cvalues_caller, double ***mvalues_caller,
                               int *tvalues_caller,
                               double thresh_caller, char *sgroupID,
-                              int pushflag, int sphereflag_caller)
+                              int pushflag)
 {
   storeflag = 1;
   if (sphereflag) {
