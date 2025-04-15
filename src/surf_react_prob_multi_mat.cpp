@@ -109,7 +109,7 @@ void SurfReactProbMultiMat::init()
   // check there is per-grid-cell array
   index_cell_react = grid->find_custom((char *) "cell_react");
   if (index_cell_react < 0)
-    error->all(FLERR,"Fix ablate did not specify react option");
+    error->all(FLERR,"No per-cell reaction sets specified");
 
   SurfReact::init();
   init_reactions();
@@ -152,7 +152,7 @@ int SurfReactProbMultiMat::react(Particle::OnePart *&ip, int, double *,
   int active;
 
   // DEBUG : Check masks carried over
-  int n0,n1;
+  /*int n0,n1;
   n0 = n1 = 0;
   for (int i = 0; i < grid->ncell; i++) {
     if (cell_react[i]) n1++;
@@ -161,7 +161,7 @@ int SurfReactProbMultiMat::react(Particle::OnePart *&ip, int, double *,
   if (n1 == 0 || n0 == 0) {
     printf("%i;%i\n",n1,n0);
     error->one(FLERR,"ck");
-  }
+  }*/
 
   for (int i = 0; i < n; i++) {
     r = &rlist[list[i]];
