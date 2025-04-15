@@ -50,19 +50,22 @@ class FixAblate : public Fix {
 
   void store_corners(int, int, int, double *, double *,
                      double **, double ***, int *, double, char *, int, int);
-  double mindist;             // min fractional distance between any grid corner pt
-                              //   and a generated tri vertex or line segment endpt
+
+  int get_sphereflag();
+  int get_multivalflag();
+
+  // need for write_isurf + create_isurf
+  double ***mvalues;      // corner multi values
+
  protected:
   int me;
   int groupbit,which,argindex,icompute,ifix,ivariable,maxrandom;
   double scale;
   char *idsource;
   int storeflag;
-  int multi_val_flag;
   int multi_dec_flag;
   int minmaxflag;
   double minmaxthresh;
-  int sphereflag;
   int ncorner;
   int nmultiv;
   int sgroupbit;
@@ -72,14 +75,17 @@ class FixAblate : public Fix {
 
   int nglocal;            // # of owned grid cells
 
+  int multi_val_flag;
+  int sphereflag;
   double **cvalues;       // corner point values
-  double ***mvalues;      // corner multi values
   double **avalues;       // corner "area" values
   int *tvalues;           // per-cell type value
   int tvalues_flag;       // 1 if tvalues is defined (by ReadIsurf)
 
   double corner_inside_min;   // min allowed value for an inside corner point
   double corner_outside_max;  // max allowed value for an outside corner point
+  double mindist;             // min fractional distance between any grid corner pt
+                              //   and a generated tri vertex or line segment endpt
 
   int **ixyz;             // ix,iy,iz indices (1 to Nxyz) of my cells
                           // in 2d/3d ablate grid (iz = 1 for 2d)

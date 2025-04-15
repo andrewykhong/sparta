@@ -318,6 +318,7 @@ FixAblate::~FixAblate()
 
   delete random;
 
+  // DO NOT REMOVE, need for surf_react_prob to get effective properties
   //grid->remove_custom(index_cell_react);
 }
 
@@ -344,19 +345,9 @@ void FixAblate::store_corners(int nx_caller, int ny_caller, int nz_caller,
                               int pushflag, int sphereflag_caller)
 {
   storeflag = 1;
-  if(mvalues_caller) {
-    multi_val_flag = 1;
-    cvalues = NULL; // likely not needed
-  } else {
-    multi_val_flag = 0;
-    mvalues = NULL; // likely not needed
-  }
-
-  if (sphereflag_caller) {
-    sphereflag = 1;
+  if (sphereflag) {
     thresh = EPSILON;
   } else {
-    sphereflag = 0;
     thresh = thresh_caller;
   }
 
@@ -703,7 +694,7 @@ void FixAblate::end_of_step()
         }
       } else sync_sphere(1);
 
-    // obsolte
+    // obsolete
     /*} else {
       if (multi_val_flag) {
         decrement_multiv_multid_outside();
@@ -2182,6 +2173,9 @@ void FixAblate::process_args(int narg, char **arg)
   fillflag = 0;
   user_phi_rho = NULL;
 
+  sphereflag = 0;
+  multi_val_flag = 0;
+
   int iarg = 0;
   while (iarg < narg) {
     if (strcmp(arg[iarg],"mindist") == 0)  {
@@ -2193,6 +2187,12 @@ void FixAblate::process_args(int narg, char **arg)
       iarg += 2;
     } else if (strcmp(arg[iarg],"multiple") == 0) {
       multi_dec_flag = 1;
+      iarg++;
+    } else if (strcmp(arg[iarg],"multivalue") == 0) {
+      multi_val_flag = 1;
+      iarg++;
+    } else if (strcmp(arg[iarg],"sphere") == 0) {
+      sphereflag = 1;
       iarg++;
     } else if (strcmp(arg[iarg],"minmax") == 0) {
       if (iarg+2 > narg) error->all(FLERR,"Invalid fix_ablate command");
@@ -2296,3 +2296,11 @@ double FixAblate::memory_usage()
   bytes += maxbuf * sizeof(double);            // sbuf
   return bytes;
 }
+
+/* ----------------------------------------------------------------------
+------------------------------------------------------------------------- */
+int FixAblate::get_sphereflag()   { return sphereflag; }
+int FixAblate::get_multivalflag() { return multi_val_flag; }
+
+
+
