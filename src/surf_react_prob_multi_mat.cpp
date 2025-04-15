@@ -150,6 +150,19 @@ int SurfReactProbMultiMat::react(Particle::OnePart *&ip, int, double *,
 
   OneReaction *r;
   int active;
+
+  // DEBUG : Check masks carried over
+  int n0,n1;
+  n0 = n1 = 0;
+  for (int i = 0; i < grid->ncell; i++) {
+    if (cell_react[i]) n1++;
+    else n0++;
+  }
+  if (n1 == 0 || n0 == 0) {
+    printf("%i;%i\n",n1,n0);
+    error->one(FLERR,"ck");
+  }
+
   for (int i = 0; i < n; i++) {
     r = &rlist[list[i]];
     active = r->mask == cell_mask ? 1 : 0;

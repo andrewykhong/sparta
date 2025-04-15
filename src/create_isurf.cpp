@@ -209,12 +209,11 @@ void CreateISurf::command(int narg, char **arg)
   tvalues = NULL;
   int pushflag = 0;
   char *sgroupID = NULL;
-  int sphereflag = 0;
-  if (ctype == SPHERE_AVE || ctype == SPHERE_MULTI) sphereflag = 1;
-
+  //int sphereflag = 0;
+  //if (ctype == SPHERE_AVE || ctype == SPHERE_MULTI) sphereflag = 1;
 
   ablate->store_corners(nxyz[0],nxyz[1],nxyz[2],corner,xyzsize,cvalues,
-                        mulvalues,tvalues,thresh,sgroupID,pushflag,sphereflag);
+                        mulvalues,tvalues,thresh,sgroupID,pushflag);
 
   if (ablate->nevery == 0) modify->delete_fix(ablateID);
 
