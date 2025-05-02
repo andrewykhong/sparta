@@ -128,6 +128,7 @@ class Stats : protected Pointers {
   void compute_nattempt();
   void compute_nreact();
   void compute_nsreact();
+  void compute_nempty();
 
   void compute_npave();
   void compute_ntouchave();
@@ -140,6 +141,7 @@ class Stats : protected Pointers {
   void compute_nattemptave();
   void compute_nreactave();
   void compute_nsreactave();
+  void compute_nemptyave();
 
   void compute_ngrid();
   void compute_nsplit();

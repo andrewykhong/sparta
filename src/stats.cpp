@@ -530,6 +530,8 @@ void Stats::set_fields(int narg, char **arg)
       addfield("Nreact",&Stats::compute_nreact,BIGINT);
     } else if (strcmp(arg[i],"nsreact") == 0) {
       addfield("Nsreact",&Stats::compute_nsreact,BIGINT);
+    } else if (strcmp(arg[i],"nempty") == 0) {
+      addfield("Nempty",&Stats::compute_nempty,BIGINT);
 
     } else if (strcmp(arg[i],"npave") == 0) {
       addfield("Npave",&Stats::compute_npave,FLOAT);
@@ -553,6 +555,8 @@ void Stats::set_fields(int narg, char **arg)
       addfield("Nreactave",&Stats::compute_nreactave,FLOAT);
     } else if (strcmp(arg[i],"nsreactave") == 0) {
       addfield("Nsreactave",&Stats::compute_nsreactave,FLOAT);
+    } else if (strcmp(arg[i],"nemptyave") == 0) {
+      addfield("Nemptyave",&Stats::compute_nemptyave,FLOAT);
 
     } else if (strcmp(arg[i],"ngrid") == 0) {
       addfield("Ngrid",&Stats::compute_ngrid,BIGINT);
@@ -919,6 +923,9 @@ int Stats::evaluate_keyword(char *word, double *answer)
   } else if (strcmp(word,"nsreact") == 0) {
     compute_nsreact();
     dvalue = bivalue;
+  } else if (strcmp(word,"nempty") == 0) {
+    compute_nempty();
+    dvalue = bivalue;
   }
 
   else if (strcmp(word,"npave") == 0) compute_npave();
@@ -932,6 +939,7 @@ int Stats::evaluate_keyword(char *word, double *answer)
   else if (strcmp(word,"nattemptave") == 0) compute_nattemptave();
   else if (strcmp(word,"nreactave") == 0) compute_nreactave();
   else if (strcmp(word,"nsreactave") == 0) compute_nsreactave();
+  else if (strcmp(word,"nemptyave") == 0) compute_nemptyave();
 
   else if (strcmp(word,"ngrid") == 0) {
     compute_ngrid();
@@ -1176,6 +1184,17 @@ void Stats::compute_nscheck()
 
 /* ---------------------------------------------------------------------- */
 
+void Stats::compute_nempty()
+{
+  if (!collide) bivalue = 0;
+  else {
+    bigint n = collide->nempty_one;
+    MPI_Allreduce(&n,&bivalue,1,MPI_SPARTA_BIGINT,MPI_SUM,world);
+  }
+}
+
+/* ---------------------------------------------------------------------- */
+
 void Stats::compute_ncoll()
 {
   if (!collide) bivalue = 0;
@@ -1332,6 +1351,19 @@ void Stats::compute_nsreactave()
                 MPI_SUM,world);
   if (update->ntimestep == update->firststep) dvalue = 0.0;
   else dvalue = 1.0*bivalue / (update->ntimestep - update->firststep);
+}
+
+/* ---------------------------------------------------------------------- */
+
+void Stats::compute_nemptyave()
+{
+  if (!collide) dvalue = 0.0;
+  else {
+    MPI_Allreduce(&collide->nempty_running,&bivalue,1,MPI_SPARTA_BIGINT,
+                  MPI_SUM,world);
+    if (update->ntimestep == update->firststep) dvalue = 0.0;
+    else dvalue = 1.0*bivalue / (update->ntimestep - update->firststep);
+  }
 }
 
 /* ---------------------------------------------------------------------- */

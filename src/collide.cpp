@@ -100,7 +100,7 @@ Collide::Collide(SPARTA *sparta, int, char **arg) : Pointers(sparta)
   // initialize counters in case stats outputs them
 
   ncollide_one = nattempt_one = nreact_one = 0;
-  ncollide_running = nattempt_running = nreact_running = 0;
+  ncollide_running = nattempt_running = nreact_running = nempty_running = 0;
 
   copymode = kokkos_flag = 0;
 }
@@ -324,7 +324,7 @@ void Collide::init()
 
   // initialize running stats before each run
 
-  ncollide_running = nattempt_running = nreact_running = 0;
+  ncollide_running = nattempt_running = nreact_running = nempty_running = 0;
 }
 
 /* ---------------------------------------------------------------------- */
@@ -414,7 +414,7 @@ void Collide::collisions()
 
   // counters
 
-  ncollide_one = nattempt_one = nreact_one = 0;
+  ncollide_one = nattempt_one = nreact_one = nempty_one = 0;
   ndelete = 0;
 
   // perform collisions:
@@ -447,6 +447,7 @@ void Collide::collisions()
   nattempt_running += nattempt_one;
   ncollide_running += ncollide_one;
   nreact_running += nreact_one;
+  nempty_running += nempty_one;
 }
 
 /* ----------------------------------------------------------------------
@@ -457,8 +458,9 @@ template < int NEARCP > void Collide::collisions_one()
 {
   int i,j,k,n,ip,np;
   int nattempt,reactflag;
-  double attempt,volume;
+  double attempt,volume,full_volume;
   Particle::OnePart *ipart,*jpart,*kpart;
+  Grid::ChildCell *cells = grid->cells;
 
   // loop over cells I own
 
@@ -469,6 +471,15 @@ template < int NEARCP > void Collide::collisions_one()
 
   for (int icell = 0; icell < nglocal; icell++) {
     np = cinfo[icell].count;
+
+    // check if cell has no particles and also not cut
+    full_volume = (cells[icell].hi[0]-cells[icell].lo[0])*
+      (cells[icell].hi[1]-cells[icell].lo[1])*
+      (cells[icell].hi[2]-cells[icell].lo[2]);
+    // consider cells with at least 99.5% in gas
+    if ((full_volume-cinfo[icell].volume)/full_volume < 0.005 && np < 1)
+      nempty_one++;
+
     if (np <= 1) continue;
 
     if (NEARCP) {
@@ -599,12 +610,13 @@ template < int NEARCP > void Collide::collisions_group()
   int nattempt,reactflag;
   int *ni,*nj,*ilist,*jlist;
   int *nn_igroup,*nn_jgroup;
-  double attempt,volume;
+  double attempt,volume,full_volume;
   Particle::OnePart *ipart,*jpart,*kpart;
 
   // loop over cells I own
 
   Grid::ChildInfo *cinfo = grid->cinfo;
+  Grid::ChildCell *cells = grid->cells;
 
   Particle::OnePart *particles = particle->particles;
   int *next = particle->next;
@@ -612,6 +624,15 @@ template < int NEARCP > void Collide::collisions_group()
 
   for (int icell = 0; icell < nglocal; icell++) {
     np = cinfo[icell].count;
+
+    // check if cell has no particles and also not cut
+    full_volume = (cells[icell].hi[0]-cells[icell].lo[0])*
+      (cells[icell].hi[1]-cells[icell].lo[1])*
+      (cells[icell].hi[2]-cells[icell].lo[2]);
+    // consider cells with at least 99.5% in gas
+    if ((full_volume-cinfo[icell].volume)/full_volume < 0.005 && np < 1)
+      nempty_one++;
+
     if (np <= 1) continue;
     ip = cinfo[icell].first;
     volume = cinfo[icell].volume / cinfo[icell].weight;
