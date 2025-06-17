@@ -57,7 +57,7 @@ FixCellGrad::FixCellGrad(SPARTA *sparta, int narg, char **arg) :
 
   // time average the quantities?
 
-  if (strcmp(arg[3],"ave") != 0) 
+  if (strcmp(arg[3],"ave")) 
     error->all(FLERR,"Expected 'ave' keyword\n");
   if (strcmp(arg[4],"running") == 0) aveflag = 1;
   else if (strcmp(arg[4],"one") == 0) aveflag = 0;
