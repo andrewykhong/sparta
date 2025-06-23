@@ -85,6 +85,8 @@ Update::Update(SPARTA *sparta) : Pointers(sparta)
   vstream[0] = vstream[1] = vstream[2] = 0.0;
   temp_thermal = 273.15;
   optmove_flag = 0;
+  vsurf[0] = vsurf[1] = vsurf[2] = 0.0;
+  surfmove_flag = 0;
   fstyle = NOFIELD;
   fieldID = NULL;
 
@@ -370,6 +372,7 @@ template < int DIM, int SURF, int OPT > void Update::move()
   cellint *neigh;
   double dtremain,frac,newfrac,param,minparam,rnew,dtsurf,tc,tmp;
   double xnew[3],xhold[3],xc[3],vc[3],minxc[3],minvc[3];
+  double xnew_move[3], vrel[3]; // new position for moving surface//'
   double *x,*v,*lo,*hi;
   double Lx,Ly,Lz,dx,dy,dz;
   double *boxlo, *boxhi;
@@ -785,24 +788,94 @@ template < int DIM, int SURF, int OPT > void Update::move()
               if (DIM > 1) {
                 if (isurf == exclude) continue;
               }
+
+              if (surfmove_flag) {
+                // TODO:TEMPORARY
+                //x[0] = x[1] = 0.0;
+                //v[0] = 1.0;
+                //v[1] = 0.0;
+                //xnew[0] = x[0] + dtremain*v[0];
+                //xnew[1] = x[1] + dtremain*v[1];
+
+                vrel[0] = v[0]-vsurf[0];
+                vrel[1] = v[1]-vsurf[1];
+                xnew_move[0] = x[0]+vrel[0]*dtremain;
+                xnew_move[1] = x[1]+vrel[1]*dtremain;
+                if (DIM == 3) {
+                  vrel[2] = v[2]-vsurf[2];
+                  xnew_move[2] = x[2]+vrel[2]*dtremain;
+                } else vrel[2] = xnew_move[2] = 0.0;
+
+                /*printf("%g %g %g\n", vrel[0], vrel[1], vrel[2]);
+                printf("%g %g %g\n",
+                  xnew_move[0], xnew_move[1], xnew_move[2]);
+                double x1[3], x2[3];
+                x1[0] = x2[0] = 5e-5;
+                x1[1] = -1.0;
+                x2[1] = 1.0;
+                x1[2] = x2[2] = 0.0;
+                double norm[3];
+                norm[0] = 1.0;
+                norm[1] = norm[2] = 0.0;
+                hitflag = Geometry::
+                  line_line_intersect(x,xnew_move,x1,x2,
+                                      norm,xc,param,side);
+                printf("%i - %g %g\n",
+                  hitflag,
+                  x[0] + param * (xnew[0]-x[0]),
+                  x[1] + param * (xnew[1]-x[1]));
+                error->one(FLERR,"ck");*/
+              }
+
               if (DIM == 3) {
                 tri = &tris[isurf];
-                hitflag = Geometry::
-                  line_tri_intersect(x,xnew,tri->p1,tri->p2,tri->p3,
-                                     tri->norm,xc,param,side);
+                if (surfmove_flag) {
+                  hitflag = Geometry::
+                    line_tri_intersect(x,xnew_move,tri->p1,tri->p2,tri->p3,
+                                       tri->norm,xc,param,side);
+                } else {
+                  hitflag = Geometry::
+                    line_tri_intersect(x,xnew,tri->p1,tri->p2,tri->p3,
+                                       tri->norm,xc,param,side);
+                }
               }
               if (DIM == 2) {
                 line = &lines[isurf];
-                hitflag = Geometry::
-                  line_line_intersect(x,xnew,line->p1,line->p2,
-                                      line->norm,xc,param,side);
+                if (surfmove_flag) {
+                  hitflag = Geometry::
+                    line_line_intersect(x,xnew_move,line->p1,line->p2,
+                                        line->norm,xc,param,side);
+                } else {
+                  hitflag = Geometry::
+                    line_line_intersect(x,xnew,line->p1,line->p2,
+                                        line->norm,xc,param,side);
+                }
               }
               if (DIM == 1) {
                 line = &lines[isurf];
-                hitflag = Geometry::
-                  axi_line_intersect(dtsurf,x,v,outface,lo,hi,line->p1,line->p2,
-                                     line->norm,exclude == isurf,
-                                     xc,vc,param,side);
+                if (surfmove_flag) {
+                  hitflag = Geometry::
+                    axi_line_intersect(dtsurf,x,vrel,outface,lo,hi,
+                                       line->p1,line->p2,
+                                       line->norm,exclude == isurf,
+                                       xc,vc,param,side);
+                  vc[0] = vc[0] + vsurf[0];
+                  vc[1] = vc[1] + vsurf[1];
+                } else {
+                  hitflag = Geometry::
+                    axi_line_intersect(dtsurf,x,v,outface,lo,hi,
+                                       line->p1,line->p2,
+                                       line->norm,exclude == isurf,
+                                       xc,vc,param,side);
+                }
+              }
+
+              // recompute intersection point
+              // param will be correct
+              if (surfmove_flag) {
+                xc[0] = x[0] + param * (xnew[0]-x[0]);
+                xc[1] = x[1] + param * (xnew[1]-x[1]);
+                if (DIM == 3) xc[2] = x[2] + param * (xnew[2]-x[2]);
               }
 
 #ifdef MOVE_DEBUG

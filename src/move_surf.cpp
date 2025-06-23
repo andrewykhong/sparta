@@ -245,6 +245,7 @@ void MoveSurf::process_args(int narg, char **arg)
   // optional args
 
   connectflag = 0;
+  pkeepflag = 0;
 
   while (iarg < narg) {
     if (strcmp(arg[iarg],"connect") == 0) {
@@ -252,6 +253,10 @@ void MoveSurf::process_args(int narg, char **arg)
       if (strcmp(arg[iarg+1],"yes") == 0) connectflag = 1;
       else if (strcmp(arg[iarg+1],"no") == 0) connectflag = 0;
       iarg += 2;
+    } else if (strcmp(arg[iarg],"keep") == 0) {
+      if (iarg+1 > narg) error->all(FLERR,"Illegal move surf command");
+      pkeepflag = 1;
+      iarg ++;
     } else error->all(FLERR,"Illegal move surf command");
   }
 }
@@ -844,7 +849,7 @@ bigint MoveSurf::remove_particles()
     // if m < nsurf, loop over csurfs did not finish
     // which means cell contains a moved surf, so delete all its particles
 
-    if (cells[icell].nsurf && cells[icell].nsplit >= 1) {
+    if (cells[icell].nsurf && cells[icell].nsplit >= 1 && !pkeepflag) {
       nsurf = cells[icell].nsurf;
       csurfs = cells[icell].csurfs;
 
@@ -883,3 +888,6 @@ bigint MoveSurf::remove_particles()
   MPI_Allreduce(&delta,&ndeleted,1,MPI_SPARTA_BIGINT,MPI_SUM,world);
   return ndeleted;
 }
+
+/* -------------------------------------------------------------------- */
+double MoveSurf::get_delta(int dim) { return delta[dim]; }

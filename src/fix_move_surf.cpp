@@ -119,12 +119,19 @@ int FixMoveSurf::setmask()
 
 void FixMoveSurf::init()
 {
+  update->surfmove_flag = 1;
+  update->vsurf[0] = movesurf->get_delta(0);
+  update->vsurf[1] = movesurf->get_delta(1);
+  if (dim == 3) update->vsurf[2] = movesurf->get_delta(2);
+
   if (nsurf != surf->nsurf)
     error->all(FLERR,"Number of surface elements changed in fix move/surf");
 
   // NOTE: first read of file ?
   //       what about on successive run
   //       for both file and trans/rotate
+
+  
 }
 
 /* ----------------------------------------------------------------------

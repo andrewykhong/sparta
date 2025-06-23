@@ -53,11 +53,12 @@ class MoveSurf : protected Pointers {
   void process_args(int, char **);
   void move_lines(double, Surf::Line *);
   void move_tris(double, Surf::Tri *);
+  double get_delta(int);
   bigint remove_particles();
 
  private:
   int me,nprocs;
-  int dim,action,connectflag;
+  int dim,action,connectflag,pkeepflag;
   char *file,*entry;
   double theta;
   double delta[3],rvec[3],origin[3];
