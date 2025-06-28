@@ -86,6 +86,8 @@ Update::Update(SPARTA *sparta) : Pointers(sparta)
   temp_thermal = 273.15;
   optmove_flag = 0;
   vsurf[0] = vsurf[1] = vsurf[2] = 0.0;
+  smax = 0.0;
+  nsurf_move = 0;
   surfmove_flag = 0;
   fstyle = NOFIELD;
   fieldID = NULL;
@@ -372,7 +374,6 @@ template < int DIM, int SURF, int OPT > void Update::move()
   cellint *neigh;
   double dtremain,frac,newfrac,param,minparam,rnew,dtsurf,tc,tmp;
   double xnew[3],xhold[3],xc[3],vc[3],minxc[3],minvc[3];
-  double xnew_move[3], vrel[3]; // new position for moving surface//'
   double *x,*v,*lo,*hi;
   double Lx,Ly,Lz,dx,dy,dz;
   double *boxlo, *boxhi;
@@ -382,6 +383,9 @@ template < int DIM, int SURF, int OPT > void Update::move()
   Particle::OnePart iorig;
   Particle::OnePart *particles;
   Particle::OnePart *ipart,*jpart;
+
+  double xnew_move[3], vrel[3]; // new position for moving surface
+  int this_move_group, move_group; 
 
   if (OPT) {
     boxlo = domain->boxlo;
@@ -469,6 +473,10 @@ template < int DIM, int SURF, int OPT > void Update::move()
 
       x = particles[i].x;
       v = particles[i].v;
+
+      //printf("ipart %i\n", i);
+      //printf("x: %g %g %g\n", x[0], x[1], x[2]);
+      //printf("v: %g %g %g\n", v[0], v[1], v[2]);
       exclude = -1;
 
       // apply moveperturb() to PKEEP and PINSERT since are computing xnew
@@ -733,7 +741,16 @@ template < int DIM, int SURF, int OPT > void Update::move()
           // skip surf checks if particle flagged as EXITing this cell
           // then unset pflag so not checked again for this particle
 
+          // need to have nsurfs include surfs in other cells
+          // additional cut2d with nsurf and allnsurf
+          // - nsurf is same as before (everywhere in code - CARE)
+          // -- nsurf overried -> failed cut2d (clines)
+          // - allnsurf-nsurf = outer surfs for moving surf
+          // - order the surfs s.t. outer surfs are at the end
+
           nsurf = cells[icell].nsurf;
+          if (surfmove_flag) nsurf = surf->nsurf;
+
           if (pflag == PEXIT) {
             nsurf = 0;
             pflag = 0;
@@ -784,19 +801,15 @@ template < int DIM, int SURF, int OPT > void Update::move()
 
             for (m = 0; m < nsurf; m++) {
               isurf = csurfs[m];
+              // ignore cusrfs for moving surf
+              if (surfmove_flag) isurf = m;
 
               if (DIM > 1) {
                 if (isurf == exclude) continue;
               }
 
               if (surfmove_flag) {
-                // TODO:TEMPORARY
-                //x[0] = x[1] = 0.0;
-                //v[0] = 1.0;
-                //v[1] = 0.0;
-                //xnew[0] = x[0] + dtremain*v[0];
-                //xnew[1] = x[1] + dtremain*v[1];
-
+                this_move_group = 0;
                 vrel[0] = v[0]-vsurf[0];
                 vrel[1] = v[1]-vsurf[1];
                 xnew_move[0] = x[0]+vrel[0]*dtremain;
@@ -805,34 +818,29 @@ template < int DIM, int SURF, int OPT > void Update::move()
                   vrel[2] = v[2]-vsurf[2];
                   xnew_move[2] = x[2]+vrel[2]*dtremain;
                 } else vrel[2] = xnew_move[2] = 0.0;
-
-                /*printf("%g %g %g\n", vrel[0], vrel[1], vrel[2]);
-                printf("%g %g %g\n",
-                  xnew_move[0], xnew_move[1], xnew_move[2]);
-                double x1[3], x2[3];
-                x1[0] = x2[0] = 5e-5;
-                x1[1] = -1.0;
-                x2[1] = 1.0;
-                x1[2] = x2[2] = 0.0;
-                double norm[3];
-                norm[0] = 1.0;
-                norm[1] = norm[2] = 0.0;
-                hitflag = Geometry::
-                  line_line_intersect(x,xnew_move,x1,x2,
-                                      norm,xc,param,side);
-                printf("%i - %g %g\n",
-                  hitflag,
-                  x[0] + param * (xnew[0]-x[0]),
-                  x[1] + param * (xnew[1]-x[1]));
-                error->one(FLERR,"ck");*/
               }
 
               if (DIM == 3) {
                 tri = &tris[isurf];
-                if (surfmove_flag) {
+                this_move_group = tris[isurf].mask & smove_groupbit;
+                if (surfmove_flag && this_move_group) {
+                  double xmove = dtremain*vsurf[0];
+                  double ymove = dtremain*vsurf[1];
+                  double zmove = dtremain*vsurf[2];
+                  double p1_move[3],p2_move[3],p3_move[3];
+                  p1_move[0] = tri->p1[0]-xmove;
+                  p1_move[1] = tri->p1[1]-ymove;
+                  p1_move[2] = tri->p1[2]-zmove;
+                  p2_move[0] = tri->p2[0]-xmove;
+                  p2_move[1] = tri->p2[1]-ymove;
+                  p2_move[2] = tri->p2[2]-zmove;
+                  p3_move[0] = tri->p3[0]-xmove;
+                  p3_move[1] = tri->p3[1]-ymove;
+                  p3_move[2] = tri->p3[2]-zmove;
                   hitflag = Geometry::
-                    line_tri_intersect(x,xnew_move,tri->p1,tri->p2,tri->p3,
-                                       tri->norm,xc,param,side);
+                    line_tri_intersect(x,xnew_move,
+                      p1_move,p2_move,p3_move,
+                      tri->norm,xc,param,side);
                 } else {
                   hitflag = Geometry::
                     line_tri_intersect(x,xnew,tri->p1,tri->p2,tri->p3,
@@ -841,10 +849,19 @@ template < int DIM, int SURF, int OPT > void Update::move()
               }
               if (DIM == 2) {
                 line = &lines[isurf];
-                if (surfmove_flag) {
+                this_move_group = lines[isurf].mask & smove_groupbit;
+                if (surfmove_flag && this_move_group) {
+                  double xmove = dtremain*vsurf[0];
+                  double ymove = dtremain*vsurf[1];
+                  double p1_move[3],p2_move[3];
+                  p1_move[0] = line->p1[0]-xmove;
+                  p1_move[1] = line->p1[1]-ymove;
+                  p2_move[0] = line->p2[0]-xmove;
+                  p2_move[1] = line->p2[1]-ymove;
                   hitflag = Geometry::
-                    line_line_intersect(x,xnew_move,line->p1,line->p2,
-                                        line->norm,xc,param,side);
+                    line_line_intersect(x,xnew_move,
+                      p1_move,p2_move,
+                      line->norm,xc,param,side);
                 } else {
                   hitflag = Geometry::
                     line_line_intersect(x,xnew,line->p1,line->p2,
@@ -853,12 +870,21 @@ template < int DIM, int SURF, int OPT > void Update::move()
               }
               if (DIM == 1) {
                 line = &lines[isurf];
-                if (surfmove_flag) {
+                this_move_group = lines[isurf].mask & smove_groupbit;
+                if (surfmove_flag && this_move_group) {
+                  double xmove = dtremain*vsurf[0];
+                  double ymove = dtremain*vsurf[1];
+                  double p1_move[3],p2_move[3];
+                  p1_move[0] = line->p1[0]-xmove;
+                  p1_move[1] = line->p1[1]-ymove;
+                  p2_move[0] = line->p2[0]-xmove;
+                  p2_move[1] = line->p2[1]-ymove;
                   hitflag = Geometry::
                     axi_line_intersect(dtsurf,x,vrel,outface,lo,hi,
-                                       line->p1,line->p2,
+                                       p1_move,p2_move,
                                        line->norm,exclude == isurf,
                                        xc,vc,param,side);
+                  // not sure if this works
                   vc[0] = vc[0] + vsurf[0];
                   vc[1] = vc[1] + vsurf[1];
                 } else {
@@ -870,12 +896,13 @@ template < int DIM, int SURF, int OPT > void Update::move()
                 }
               }
 
-              // recompute intersection point
-              // param will be correct
-              if (surfmove_flag) {
-                xc[0] = x[0] + param * (xnew[0]-x[0]);
-                xc[1] = x[1] + param * (xnew[1]-x[1]);
-                if (DIM == 3) xc[2] = x[2] + param * (xnew[2]-x[2]);
+              // recompute xc with current v + param
+              // xc found in particle frame of reference
+              if (surfmove_flag && hitflag && this_move_group) {
+                xc[0] = x[0] + dtremain*param*v[0];
+                xc[1] = x[1] + dtremain*param*v[1];
+                if (DIM == 3) xc[2] = x[2] + dtremain*param*v[2];
+                else xc[2] = x[2];
               }
 
 #ifdef MOVE_DEBUG
@@ -952,9 +979,13 @@ template < int DIM, int SURF, int OPT > void Update::move()
                   minvc[1] = vc[1];
                   minvc[2] = vc[2];
                 }
+                move_group = this_move_group;
               }
 
             } // END of for loop over surfs
+
+            //if (!cflag && hit_inside) error->one(FLERR,"Inside surf");
+            
 
             // tri/line = surf that particle hit first
 
@@ -964,7 +995,6 @@ template < int DIM, int SURF, int OPT > void Update::move()
 
               // set x to collision point
               // if axisymmetric, set v to remapped velocity at collision pt
-
               x[0] = minxc[0];
               x[1] = minxc[1];
               if (DIM == 3) x[2] = minxc[2];
@@ -1015,6 +1045,14 @@ template < int DIM, int SURF, int OPT > void Update::move()
               else stuck_iterate = 0;
 
               // reset post-bounce xnew
+
+              // diffuse collision does not add the surf move vel
+              // ... so can add vsurf for both diff and spec type coll
+              if (surfmove_flag && move_group) {
+                v[0] += vsurf[0];
+                v[1] += vsurf[1];
+                if (DIM == 3) v[2] += vsurf[2];
+              }
 
               xnew[0] = x[0] + dtremain*v[0];
               xnew[1] = x[1] + dtremain*v[1];
@@ -1363,6 +1401,68 @@ template < int DIM, int SURF, int OPT > void Update::move()
   }
 
   // END of all move/migrate iterations
+
+
+  // check if any particles are inside surface (square example)
+  //if (surfmove_flag) {
+
+    /*double xmax, ymax, xmin, ymin;
+    nsurf = surf->nsurf;
+    int ninside = 0;
+    for (m = 0; m < nsurf; m++) {
+      isurf = m;
+
+      line = &lines[isurf];
+      double xmove = -update->dt*vsurf[0];
+      double ymove = -update->dt*vsurf[1];
+      // already moved
+      xmove = ymove = 0;
+      double p1_move[3],p2_move[3];
+      p1_move[0] = line->p1[0]-xmove;
+      p1_move[1] = line->p1[1]-ymove;
+      p2_move[0] = line->p2[0]-xmove;
+      p2_move[1] = line->p2[1]-ymove;
+
+      if (m == 0) {
+        xmin = MIN(p1_move[0],p2_move[0]);
+        xmax = MAX(p1_move[0],p2_move[0]);
+        ymin = MIN(p1_move[1],p2_move[1]);
+        ymax = MAX(p1_move[1],p2_move[1]);
+      } else {
+        xmin = MIN(xmin,p1_move[0]);
+        xmax = MAX(xmax,p1_move[0]);
+        ymin = MIN(ymin,p1_move[1]);
+        ymax = MAX(ymax,p1_move[1]);
+
+        xmin = MIN(xmin,p2_move[0]);
+        xmax = MAX(xmax,p2_move[0]);
+        ymin = MIN(ymin,p2_move[1]);
+        ymax = MAX(ymax,p2_move[1]);
+      }
+    }
+
+    particles = particle->particles;
+
+    int xin, yin;
+    for (int i = 0; i < nlocal; i++) {
+      x = particles[i].x;
+      xin = yin = 0;
+      if (x[0] > xmin && x[0] < xmax) xin = 1;
+      if (x[1] > ymin && x[1] < ymax) yin = 1;
+      if (xin && yin && nsurf_move > 1) {
+        ninside++;
+        double xmove = -update->dt*vsurf[0];
+        double ymove = -update->dt*vsurf[1];
+        //printf("i: %i; r: %g %g %g\n", i, x[0], x[1], x[2]);
+        //printf("old: x = [%g,%g]; y = [%g,%g]\n",
+        //  xmin+xmove, xmax+xmove, ymin+ymove, ymax+ymove);
+        //printf("x = [%g,%g]; y = [%g,%g]\n",
+        //  xmin, xmax, ymin, ymax);
+        //error->one(FLERR,"inside");
+      }
+    }
+    if (ninside && nsurf_move > 1) printf("ninside: %i\n", ninside);*/
+  //}
 
   particle->sorted = 0;
 

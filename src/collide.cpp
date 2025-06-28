@@ -478,7 +478,8 @@ template < int NEARCP > void Collide::collisions_one()
 
     ip = cinfo[icell].first;
     volume = cinfo[icell].volume / cinfo[icell].weight;
-    if (volume == 0.0) error->one(FLERR,"Collision cell volume is zero");
+    //if (volume == 0.0) error->one(FLERR,"Collision cell volume is zero");
+    if (volume == 0.0) continue;
 
     // setup particle list for this cell
 
@@ -609,13 +610,13 @@ template < int NEARCP > void Collide::collisions_group()
   Particle::OnePart *particles = particle->particles;
   int *next = particle->next;
   int *species2group = mixture->species2group;
-
   for (int icell = 0; icell < nglocal; icell++) {
     np = cinfo[icell].count;
     if (np <= 1) continue;
     ip = cinfo[icell].first;
     volume = cinfo[icell].volume / cinfo[icell].weight;
-    if (volume == 0.0) error->one(FLERR,"Collision cell volume is zero");
+    //if (volume == 0.0) error->one(FLERR,"Collision cell volume is zero");
+    if (volume == 0.0) continue;
 
     // reallocate plist and p2g if necessary
 
@@ -889,7 +890,8 @@ void Collide::collisions_one_ambipolar()
     if (np <= 1) continue;
     ip = cinfo[icell].first;
     volume = cinfo[icell].volume / cinfo[icell].weight;
-    if (volume == 0.0) error->one(FLERR,"Collision cell volume is zero");
+    //if (volume == 0.0) error->one(FLERR,"Collision cell volume is zero");
+    if (volume == 0.0) continue;
 
     // setup particle list for this cell
 
@@ -1184,7 +1186,8 @@ void Collide::collisions_group_ambipolar()
     if (np <= 1) continue;
     ip = cinfo[icell].first;
     volume = cinfo[icell].volume / cinfo[icell].weight;
-    if (volume == 0.0) error->one(FLERR,"Collision cell volume is zero");
+    //if (volume == 0.0) error->one(FLERR,"Collision cell volume is zero");
+    if (volume == 0.0) continue;
 
     // reallocate plist and p2g if necessary
 

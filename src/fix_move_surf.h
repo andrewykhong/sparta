@@ -32,7 +32,7 @@ class FixMoveSurf : public Fix {
   ~FixMoveSurf();
   int setmask();
   void init();
-  void end_of_step();
+  void start_of_step();
   double compute_scalar();
 
  private:

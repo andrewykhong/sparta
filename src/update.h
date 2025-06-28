@@ -44,8 +44,11 @@ class Update : protected Pointers {
   double temp_thermal;   // thermal temperature of background gas
   int optmove_flag;      // global optmove option set
 
-  double vsurf[3];       // velocity of surface
   int surfmove_flag;     // flag for whether surfs move or not
+  int nsurf_move;        // total number of surf moves
+  int smove_groupbit;    // group mask
+  double vsurf[3];       // velocity of surface
+  double smax;           // max move distance
 
   int fstyle;            // external field: NOFIELD, CFIELD, PFIELD, GFIELD
   double field[3];       // constant external field

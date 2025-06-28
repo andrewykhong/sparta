@@ -84,6 +84,51 @@ int Cut2d::surf2grid(cellint id_caller, double *lo_caller, double *hi_caller,
 }
 
 /* ----------------------------------------------------------------------
+   similar to above but append surfs which are outside the cell
+   - used for move surf
+------------------------------------------------------------------------- */
+
+int Cut2d::surf2grid_all(cellint id_caller, double *lo_caller, double *hi_caller,
+                     surfint *surfs_caller, int max, double smax, int isurf)
+{
+  id = id_caller;
+  lo = lo_caller;
+  hi = hi_caller;
+  surfs = surfs_caller;
+
+  Surf::Line *lines = surf->lines;
+  int ntotal = surf->nsurf;
+
+  double *x1,*x2;
+
+  lo[0] -= smax;
+  lo[1] -= smax;
+  hi[0] += smax;
+  hi[1] += smax;
+
+  int allsurf = isurf;
+  int not_local;
+  for (int m = 0; m < ntotal; m++) {
+    x1 = lines[m].p1;
+    x2 = lines[m].p2;
+
+    not_local = 0;
+    if (MAX(x1[0],x2[0]) < (lo[0]+smax)) not_local = 1;
+    if (MIN(x1[0],x2[0]) > (hi[0]-smax)) not_local = 1;
+    if (MAX(x1[1],x2[1]) < (lo[1]+smax)) not_local = 1;
+    if (MIN(x1[1],x2[1]) > (hi[1]-smax)) not_local = 1;
+
+    // check if outer surfaces within bounding sphere
+    if (cliptest(x1,x2) && not_local) {
+      if (allsurf < max) surfs[allsurf] = m;
+      allsurf++;
+    }
+  }
+
+  return allsurf;
+}
+
+/* ----------------------------------------------------------------------
    compute intersections of a grid cell with a provided list of surfs
    csurfs = indices into global surf list
    nlist, list = vector of surf indices of length nlist

@@ -845,11 +845,13 @@ bigint MoveSurf::remove_particles()
       continue;
     }
 
+    if (pkeepflag) continue;
+
     // cell has surfs or is split
     // if m < nsurf, loop over csurfs did not finish
     // which means cell contains a moved surf, so delete all its particles
 
-    if (cells[icell].nsurf && cells[icell].nsplit >= 1 && !pkeepflag) {
+    if (cells[icell].nsurf && cells[icell].nsplit >= 1) {
       nsurf = cells[icell].nsurf;
       csurfs = cells[icell].csurfs;
 

@@ -33,6 +33,7 @@
 #include "math_const.h"
 #include "error.h"
 #include "memory.h"
+#include "update.h"
 
 #ifdef SPARTA_JPEG
 #include "jpeglib.h"

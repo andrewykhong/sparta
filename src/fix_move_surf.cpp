@@ -27,6 +27,7 @@
 using namespace SPARTA_NS;
 
 enum{UNKNOWN,OUTSIDE,INSIDE,OVERLAP};           // several files
+enum{PERAUTO,PERCELL,PERSURF};                // several files
 
 /* ---------------------------------------------------------------------- */
 
@@ -104,6 +105,8 @@ FixMoveSurf::~FixMoveSurf()
   delete movesurf;
   memory->sfree(origlines);
   memory->sfree(origtris);
+
+  update->surfmove_flag = 0;
 }
 
 /* ---------------------------------------------------------------------- */
@@ -111,7 +114,7 @@ FixMoveSurf::~FixMoveSurf()
 int FixMoveSurf::setmask()
 {
   int mask = 0;
-  mask |= END_OF_STEP;
+  mask |= START_OF_STEP;
   return mask;
 }
 
@@ -120,12 +123,26 @@ int FixMoveSurf::setmask()
 void FixMoveSurf::init()
 {
   update->surfmove_flag = 1;
-  update->vsurf[0] = movesurf->get_delta(0);
-  update->vsurf[1] = movesurf->get_delta(1);
-  if (dim == 3) update->vsurf[2] = movesurf->get_delta(2);
+  update->nsurf_move = 0;
+  update->smove_groupbit = movesurf->groupbit;
+
+  double dx,dy,dz;
+  dx = movesurf->get_delta(0);
+  dy = movesurf->get_delta(1);
+  if (dim == 3) dz = movesurf->get_delta(2);
+
+  update->vsurf[0] = dx/update->dt;
+  update->vsurf[1] = dy/update->dt;
+  if (dim == 3) update->vsurf[2] = dz/update->dt;
+
+  double smax = MAX(fabs(dx),fabs(dy));
+  if (dim == 3) smax = MAX(smax,fabs(dz));
+  update->smax = smax;
 
   if (nsurf != surf->nsurf)
     error->all(FLERR,"Number of surface elements changed in fix move/surf");
+
+  grid->surfgrid_algorithm = PERCELL;
 
   // NOTE: first read of file ?
   //       what about on successive run
@@ -136,13 +153,17 @@ void FixMoveSurf::init()
 
 /* ----------------------------------------------------------------------
    move surface points incrementally
+   must be end of step so surfaces sorted correctly
 ------------------------------------------------------------------------- */
 
-void FixMoveSurf::end_of_step()
+void FixMoveSurf::start_of_step()
 {
+  update->nsurf_move += 1;
+  //if (update->nsurf_move < 2) return;
+
   // fraction = fraction of Nlarge represented by this timestep
 
-  bigint nelapsed = update->ntimestep - ntimestep_original;
+  bigint nelapsed = update->ntimestep - ntimestep_original - 1;
   double fraction = 1.0*nelapsed / nlarge;
 
   // sort particles
