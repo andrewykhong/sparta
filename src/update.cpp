@@ -384,7 +384,8 @@ template < int DIM, int SURF, int OPT > void Update::move()
   Particle::OnePart *ipart,*jpart;
 
   double xnew_move[3], vrel[3]; // new position for moving surface
-  int this_move_group, move_group; 
+  int this_move_group, move_group;
+  int all_surfs;
 
   if (OPT) {
     boxlo = domain->boxlo;
@@ -748,20 +749,24 @@ template < int DIM, int SURF, int OPT > void Update::move()
           // - order the surfs s.t. outer surfs are at the end
 
           nsurf = cells[icell].nsurf;
+          int all_surfs = 0;
           if (surfmove_flag) {
             // check if any cell corners in surface
-            int close = 0;
-            if (lo[0] > slo[0] && lo[0] < shi[0]) close = 1;
-            if (lo[1] > slo[1] && lo[1] < shi[1]) close = 1;
-            if (hi[0] > slo[0] && hi[0] < shi[0]) close = 1;
-            if (hi[1] > slo[1] && hi[1] < shi[1]) close = 1;
-            if (DIM == 3 && lo[2] > slo[2] && lo[2] < shi[2]) close = 1;
-            if (DIM == 3 && hi[2] > slo[2] && hi[2] < shi[2]) close = 1;
+            if (lo[0] > slo[0] && lo[0] < shi[0]) all_surfs = 1;
+            if (lo[1] > slo[1] && lo[1] < shi[1]) all_surfs = 1;
+            if (hi[0] > slo[0] && hi[0] < shi[0]) all_surfs = 1;
+            if (hi[1] > slo[1] && hi[1] < shi[1]) all_surfs = 1;
+            if (DIM == 3) {
+              if(lo[2] > slo[2] && lo[2] < shi[2]) all_surfs = 1;
+              if(hi[2] > slo[2] && hi[2] < shi[2]) all_surfs = 1;
+            }
 
-            if (close) nsurf = surf->nsurf;
-            else nsurf = 0;
+            if (all_surfs) nsurf = surf->nsurf;
+            else nsurf = cells[icell].nsurf;
             //nsurf = surf->nsurf;
           }
+
+          if (all_surfs && !surfmove_flag) error->one(FLERR,"Error");
 
           if (pflag == PEXIT) {
             nsurf = 0;
@@ -812,9 +817,9 @@ template < int DIM, int SURF, int OPT > void Update::move()
             csurfs = cells[icell].csurfs;
 
             for (m = 0; m < nsurf; m++) {
-              isurf = csurfs[m];
               // ignore cusrfs for moving surf
-              if (surfmove_flag) isurf = m;
+              if (all_surfs) isurf = m;
+              else isurf = csurfs[m];
 
               if (DIM > 1) {
                 if (isurf == exclude) continue;
