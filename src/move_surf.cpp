@@ -891,5 +891,96 @@ bigint MoveSurf::remove_particles()
   return ndeleted;
 }
 
+/* ----------------------------------------------------------------------
+   finds bounding box of moving surfs
+   don't need sync since not distributed and all cores know all surfs
+------------------------------------------------------------------------- */
+
+#define BIG 1.0e20
+void MoveSurf::set_bbox()
+{
+  int i,j;
+  double bblo[3],bbhi[3];
+  double *x;
+
+  Surf::Line *lines = surf->lines;
+  Surf::Tri *tris = surf->tris;
+
+  int nsurf = surf->nsurf;
+
+  for (j = 0; j < 3; j++) {
+    bblo[j] = BIG;
+    bbhi[j] = -BIG;
+  }
+
+  if (domain->dimension == 2) {
+    for (i = 0; i < nsurf; i++) {
+      if (!(lines[i].mask & groupbit)) continue;
+      x = lines[i].p1;
+      // new position
+      for (j = 0; j < 2; j++) {
+        bblo[j] = MIN(bblo[j],x[j]);
+        bbhi[j] = MAX(bbhi[j],x[j]);
+      }
+      // old position
+      for (j = 0; j < 2; j++) {
+        bblo[j] = MIN(bblo[j],x[j]-delta[j]);
+        bbhi[j] = MAX(bbhi[j],x[j]-delta[j]);
+      }
+
+      x = lines[i].p2;
+      for (j = 0; j < 2; j++) {
+        bblo[j] = MIN(bblo[j],x[j]);
+        bbhi[j] = MAX(bbhi[j],x[j]);
+      }
+      for (j = 0; j < 2; j++) {
+        bblo[j] = MIN(bblo[j],x[j]-delta[j]);
+        bbhi[j] = MAX(bbhi[j],x[j]-delta[j]);
+      }
+    }
+
+    bblo[2] = domain->boxlo[2];
+    bbhi[2] = domain->boxhi[2];
+
+  } else {
+    for (i = 0; i < nsurf; i++) {
+      if (!(tris[i].mask & groupbit)) continue;
+      x = tris[i].p1;
+      for (j = 0; j < 3; j++) {
+        bblo[j] = MIN(bblo[j],x[j]);
+        bbhi[j] = MAX(bbhi[j],x[j]);
+      }
+      for (j = 0; j < 3; j++) {
+        bblo[j] = MIN(bblo[j],x[j]-delta[j]);
+        bbhi[j] = MAX(bbhi[j],x[j]-delta[j]);
+      }
+      x = tris[i].p2;
+      for (j = 0; j < 3; j++) {
+        bblo[j] = MIN(bblo[j],x[j]);
+        bbhi[j] = MAX(bbhi[j],x[j]);
+      }
+      for (j = 0; j < 3; j++) {
+        bblo[j] = MIN(bblo[j],x[j]-delta[j]);
+        bbhi[j] = MAX(bbhi[j],x[j]-delta[j]);
+      }
+      x = tris[i].p3;
+      for (j = 0; j < 3; j++) {
+        bblo[j] = MIN(bblo[j],x[j]);
+        bbhi[j] = MAX(bbhi[j],x[j]);
+      }
+      for (j = 0; j < 3; j++) {
+        bblo[j] = MIN(bblo[j],x[j]-delta[j]);
+        bbhi[j] = MAX(bbhi[j],x[j]-delta[j]);
+      }
+    }
+  }
+
+  // update bounds in update for move
+  for (j = 0; j < 3; j++) {
+    update->slo[j] = bblo[j];
+    update->shi[j] = bbhi[j];
+  }
+}
+
 /* -------------------------------------------------------------------- */
 double MoveSurf::get_delta(int dim) { return delta[dim]; }

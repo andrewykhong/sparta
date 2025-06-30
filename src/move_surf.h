@@ -54,6 +54,7 @@ class MoveSurf : protected Pointers {
   void move_lines(double, Surf::Line *);
   void move_tris(double, Surf::Tri *);
   double get_delta(int);
+  void set_bbox();
   bigint remove_particles();
 
  private:

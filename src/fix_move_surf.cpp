@@ -135,10 +135,6 @@ void FixMoveSurf::init()
   update->vsurf[1] = dy/update->dt;
   if (dim == 3) update->vsurf[2] = dz/update->dt;
 
-  double smax = MAX(fabs(dx),fabs(dy));
-  if (dim == 3) smax = MAX(smax,fabs(dz));
-  update->smax = smax;
-
   if (nsurf != surf->nsurf)
     error->all(FLERR,"Number of surface elements changed in fix move/surf");
 
@@ -213,6 +209,11 @@ void FixMoveSurf::start_of_step()
   // notify all classes that store per-grid data that grid may have changed
 
   grid->notify_changed();
+
+  // find bounding box around moving surfs
+
+  movesurf->set_bbox();
+
 }
 
 /* ----------------------------------------------------------------------

@@ -48,7 +48,7 @@ class Update : protected Pointers {
   int nsurf_move;        // total number of surf moves
   int smove_groupbit;    // group mask
   double vsurf[3];       // velocity of surface
-  double smax;           // max move distance
+  double slo[3], shi[3]; // bounding box of surfaces
 
   int fstyle;            // external field: NOFIELD, CFIELD, PFIELD, GFIELD
   double field[3];       // constant external field

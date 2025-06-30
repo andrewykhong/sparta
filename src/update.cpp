@@ -86,7 +86,6 @@ Update::Update(SPARTA *sparta) : Pointers(sparta)
   temp_thermal = 273.15;
   optmove_flag = 0;
   vsurf[0] = vsurf[1] = vsurf[2] = 0.0;
-  smax = 0.0;
   nsurf_move = 0;
   surfmove_flag = 0;
   fstyle = NOFIELD;
@@ -749,7 +748,20 @@ template < int DIM, int SURF, int OPT > void Update::move()
           // - order the surfs s.t. outer surfs are at the end
 
           nsurf = cells[icell].nsurf;
-          if (surfmove_flag) nsurf = surf->nsurf;
+          if (surfmove_flag) {
+            // check if any cell corners in surface
+            int close = 0;
+            if (lo[0] > slo[0] && lo[0] < shi[0]) close = 1;
+            if (lo[1] > slo[1] && lo[1] < shi[1]) close = 1;
+            if (hi[0] > slo[0] && hi[0] < shi[0]) close = 1;
+            if (hi[1] > slo[1] && hi[1] < shi[1]) close = 1;
+            if (DIM == 3 && lo[2] > slo[2] && lo[2] < shi[2]) close = 1;
+            if (DIM == 3 && hi[2] > slo[2] && hi[2] < shi[2]) close = 1;
+
+            if (close) nsurf = surf->nsurf;
+            else nsurf = 0;
+            //nsurf = surf->nsurf;
+          }
 
           if (pflag == PEXIT) {
             nsurf = 0;
