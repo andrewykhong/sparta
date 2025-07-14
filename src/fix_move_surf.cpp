@@ -130,15 +130,21 @@ void FixMoveSurf::init()
   dx = movesurf->get_delta(0);
   dy = movesurf->get_delta(1);
   if (dim == 3) dz = movesurf->get_delta(2);
+  else dz = 0;
 
-  update->vsurf[0] = dx/update->dt;
-  update->vsurf[1] = dy/update->dt;
-  if (dim == 3) update->vsurf[2] = dz/update->dt;
+  update->vsurf[0] = dx/(update->dt*nlarge);
+  update->vsurf[1] = dy/(update->dt*nlarge);
+  if (dim == 3) update->vsurf[2] = dz/(update->dt*nlarge);
+
+  //printf("d: %g %g %g\n", dx, dy, dz);
+  //printf("v: %g %g %g\n",
+  //  update->vsurf[0], update->vsurf[1], update->vsurf[2]);
+  //error->one(FLERR,"ck");
 
   if (nsurf != surf->nsurf)
     error->all(FLERR,"Number of surface elements changed in fix move/surf");
 
-  grid->surfgrid_algorithm = PERCELL;
+  //grid->surfgrid_algorithm = PERCELL;
 
   // NOTE: first read of file ?
   //       what about on successive run

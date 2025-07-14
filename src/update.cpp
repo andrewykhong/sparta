@@ -1066,9 +1066,11 @@ template < int DIM, int SURF, int OPT > void Update::move()
               // diffuse collision does not add the surf move vel
               // ... so can add vsurf for both diff and spec type coll
               if (surfmove_flag && move_group) {
+                //printf("rel v: %g %g %g\n", v[0], v[1], v[2]);
                 v[0] += vsurf[0];
                 v[1] += vsurf[1];
                 if (DIM == 3) v[2] += vsurf[2];
+                //printf("v: %g %g %g\n", v[0], v[1], v[2]);
               }
 
               xnew[0] = x[0] + dtremain*v[0];
