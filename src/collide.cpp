@@ -39,6 +39,7 @@ enum{NONE,DISCRETE,SMOOTH};       // several files  (NOTE: change order)
 enum{PKEEP,PINSERT,PDONE,PDISCARD,PENTRY,PEXIT,PSURF};   // several files
 enum{ENERGY,HEAT,STRESS};   // particle reduction choices
 enum{BINARY,WEIGHT}; // grouping choices
+enum{NO_BALANCE,NUMBER_BALANCE,WEIGHT_BALANCE};
 
 #define DELTAGRID 1000            // must be bigger than split cells per cell
 #define DELTADELETE 1024
@@ -98,7 +99,8 @@ Collide::Collide(SPARTA *sparta, int, char **arg) : Pointers(sparta)
   elist = NULL;
 
   // stochastic weighted particle method
-  swpmflag = 0;
+  balance_swpm_flag = NO_BALANCE;
+  swpm_flag = 0;
   sweight_max = update->fnum;
   reduceflag = 0;
   Ncmin = Ncmax = Ngmin = Ngmax = 0;
@@ -256,7 +258,7 @@ void Collide::init()
     if (ngroups == 1) {
       npmax = DELTAPART;
       memory->create(plist,npmax,"collide:plist");
-      if(swpmflag) {
+      if(swpm_flag) {
         memory->create(pL,npmax,"collide:pL");
         memory->create(pLU,npmax,"collide:pLU");
       }
@@ -409,29 +411,41 @@ void Collide::modify_params(int narg, char **arg)
         error->all(FLERR,"Illegal collide_modify command");
       iarg += 3;
     } else if (strcmp(arg[iarg],"swpm") == 0) {
-      if (iarg+4 > narg) error->all(FLERR,"Illegal collide_modify command");
+      if (iarg+3 > narg) error->all(FLERR,"Illegal collide_modify command");
       if (domain->axisymmetric)
         error->all(FLERR,"SWPM cannot be used in axi-symmetric simulations");
       if (grid->cellweightflag)
         error->all(FLERR,"SWPM cannot be used with cell-based weighting");
       // enable particle weighting
       particle->weightflag = 1;
-      if (strcmp(arg[iarg+1],"no") == 0) swpmflag = 0;
-      else if (strcmp(arg[iarg+1],"yes") == 0) swpmflag = 1;
-      else error->all(FLERR,"Illegal collide_modify command");
-      Ncmin = atoi(arg[iarg+2]);
-      wtf = atof(arg[iarg+3]);
+      swpm_flag = 1;
+      Ncmin = atoi(arg[iarg+1]);
+      wtf = atof(arg[iarg+2]);
       if (wtf < 0) error->all(FLERR,"Illegal collide_modify command");
-      iarg += 4;
+      iarg += 3;
     } else if (strcmp(arg[iarg],"notiny") == 0) {
       remove_min_flag = 1;
       if (iarg+2 > narg) error->all(FLERR,"Illegal collide_modify command");
-      min_weight = atof(arg[iarg+1]);
+      bst_number_thresh = atoi(arg[iarg+1]);
       if (min_weight < 0)
         error->all(FLERR,"Minimum weight must be a non-zero value");
       iarg += 2;
+    } else if (strcmp(arg[iarg],"balance_number") == 0) {
+      balance_swpm_flag = NUMBER_BALANCE;
+      if (iarg+2 > narg) error->all(FLERR,"Illegal collide_modify command");
+      bst_number_thresh = atoi(arg[iarg+1]);
+      if (bst_number_thresh < 0)
+        error->all(FLERR,"Minimum weight must be a non-zero value");
+      iarg += 2;
+    } else if (strcmp(arg[iarg],"balance_weight") == 0) {
+      balance_swpm_flag = WEIGHT_BALANCE;
+      if (iarg+2 > narg) error->all(FLERR,"Illegal collide_modify command");
+      bst_weight_thresh = atof(arg[iarg+1]);
+      if (bst_weight_thresh < 0)
+        error->all(FLERR,"Minimum weight must be a non-zero value");
+      iarg += 2;
     } else if (strcmp(arg[iarg],"reduce") == 0) {
-      if (!swpmflag) error->all(FLERR,"Must have swpm enabled first");
+      if (!swpm_flag) error->all(FLERR,"Must have swpm enabled first");
       if (iarg+5 > narg) error->all(FLERR,"Illegal collide_modify command");
       reduceflag = 1;
       if (strcmp(arg[iarg+1],"energy") == 0) reduction_type = ENERGY;
@@ -501,7 +515,7 @@ void Collide::collisions()
   // variant for ambipolar approximation or not
   // variant for stochastic weighted collisions or not
 
-  if (swpmflag) {
+  if (swpm_flag) {
     if (ngroups == 1) collisions_one_sw();
     else collisions_group_sw();
     particle->sort();
@@ -525,7 +539,7 @@ void Collide::collisions()
 
   if (ndelete) particle->compress_reactions(ndelete,dellist);
   if (react) particle->sorted = 0;
-  if (swpmflag) particle->sorted = 0;
+  if (swpm_flag) particle->sorted = 0;
 
   // accumulate running totals
 

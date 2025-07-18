@@ -37,6 +37,7 @@ using namespace SPARTA_NS;
 
 enum{ENERGY,HEAT,STRESS};   // particle reduction choices
 enum{BINARY,WEIGHT}; // grouping choices
+enum{NO_BALANCE,NUMBER_BALANCE,WEIGHT_BALANCE};
 
 #define DELTADELETE 1024
 #define BIG 1.0e20
@@ -102,10 +103,11 @@ void Collide::collisions_one_sw()
     sweight_max *= update->fnum;
 
     // scale max in cell count with cell level
-    level = cells[icell].level;
-    if (level == 1) cell_scale = 1.0;
-    else if (domain->dimension == 2) cell_scale = pow(4,level-1);
-    else cell_scale = pow(8,level-1);
+    cell_scale = 1.0;
+    //level = cells[icell].level;
+    //if (level == 1) cell_scale = 1.0;
+    //else if (domain->dimension == 2) cell_scale = pow(4,level-1);
+    //else cell_scale = pow(8,level-1);
 
     // attempt = exact collision attempt count for all particles in cell
     // nattempt = rounded attempt with RN
@@ -763,18 +765,214 @@ void Collide::group_bt(int *plist_leaf, int np)
     double center = V[0]*maxevec[0] + V[1]*maxevec[1] + V[2]*maxevec[2];
     int pid, pidL[np], pidR[np];
     int npL, npR;
+    double gL, gR;
     npL = npR = 0;
+    gL = gR = 0.0;
     for (int i = 0; i < np; i++) {
       pid = plist_leaf[i];
       ipart = &particles[pid];
-      if (MathExtra::dot3(ipart->v,maxevec) < center)
+      if (MathExtra::dot3(ipart->v,maxevec) < center) {
         pidL[npL++] = pid;
-      else
+        gL += ipart->weight;
+      } else {
         pidR[npR++] = pid;
+        gR += ipart->weight;
+      }
     }
 
-    if(npL < 1) error->all(FLERR,"No particles in left group");
-    if(npR < 1) error->all(FLERR,"No particles in right group");
+    // may occur due to machine precision issues
+    //if(npL < 1) error->all(FLERR,"No particles in left group");
+    //if(npR < 1) error->all(FLERR,"No particles in right group");
+
+    if (balance_swpm_flag == NUMBER_BALANCE) {
+      double vmV[3];
+      int dnpLR = npL-npR;
+      // number of particles to move
+      int npmove =
+        static_cast<int>(std::floor(fabs(dnpLR)*0.5+random->uniform()));
+
+      // left group too bigger
+      if (dnpLR > bst_number_thresh) {
+        double arr_vdist[npL];
+        double i_vdist;
+        for (int i = 0; i < npL; i++) {
+          ipart = &particles[pidL[i]];
+          vmV[0] = ipart->v[0]-V[0];
+          vmV[1] = ipart->v[1]-V[1];
+          vmV[2] = ipart->v[2]-V[2];
+          i_vdist = fabs(MathExtra::dot3(vmV,maxevec));
+          arr_vdist[i] = i_vdist;
+        }
+
+        // selection sort from smallest to largest distance
+        int imin;
+        double min_vdist = 0.0;
+        for (int i = 0; i < npL; i++) {
+          for (int j = i; j < npL; j++) {
+            if (j == i || arr_vdist[j] < min_vdist) {
+              imin = j;
+              min_vdist = arr_vdist[j];
+            }
+          }
+          if (imin != i) {
+            std::swap(pidL[i],pidL[imin]);
+            std::swap(arr_vdist[i],arr_vdist[imin]);
+          }
+        }
+
+        // move particles to smaller and li
+        for (int i = 0; i < npmove; i++) {
+          pidR[npR++] = pidL[i];
+          std::swap(pidL[i],pidL[npL-1]);
+          npL--;
+        }
+      // right group too big
+      } else if (dnpLR < -bst_number_thresh) {
+        double arr_vdist[npR];
+        double i_vdist;
+        for (int i = 0; i < npR; i++) {
+          ipart = &particles[pidR[i]];
+          vmV[0] = ipart->v[0]-V[0];
+          vmV[1] = ipart->v[1]-V[1];
+          vmV[2] = ipart->v[2]-V[2];
+          i_vdist = fabs(MathExtra::dot3(vmV,maxevec));
+          arr_vdist[i] = i_vdist;
+        }
+        
+        // selection sort from smallest to largest distance
+        int imin;
+        double min_vdist = 0.0;
+        for (int i = 0; i < npR; i++) {
+          for (int j = i; j < npR; j++) {
+            if (j == i || arr_vdist[j] < min_vdist) {
+              imin = j;
+              min_vdist = arr_vdist[j];
+            }
+          }
+          if (imin != i) {
+            std::swap(pidR[i],pidR[imin]);
+            std::swap(arr_vdist[i],arr_vdist[imin]);
+          }
+        }
+
+        // move particles to smaller and list
+        for (int i = 0; i < npmove; i++) {
+          pidL[npL++] = pidR[i];
+          std::swap(pidR[i],pidR[npR-1]);
+          npR--;
+        }
+      }
+    } else if (balance_swpm_flag == WEIGHT_BALANCE) {
+      double vmV[3];
+      double dgLR = gL-gR;
+
+      // left group too bigger
+      if (dgLR > bst_weight_thresh) {
+        double arr_vdist[npL];
+        double i_vdist;
+        for (int i = 0; i < npL; i++) {
+          ipart = &particles[pidL[i]];
+          vmV[0] = ipart->v[0]-V[0];
+          vmV[1] = ipart->v[1]-V[1];
+          vmV[2] = ipart->v[2]-V[2];
+          i_vdist = fabs(MathExtra::dot3(vmV,maxevec));
+          arr_vdist[i] = i_vdist;
+        }
+
+        // selection sort from smallest to largest distance
+        int imin;
+        double min_vdist = 0.0;
+        for (int i = 0; i < npL; i++) {
+          for (int j = i; j < npL; j++) {
+            if (j == i || arr_vdist[j] < min_vdist) {
+              imin = j;
+              min_vdist = arr_vdist[j];
+            }
+          }
+          if (imin != i) {
+            std::swap(pidL[i],pidL[imin]);
+            std::swap(arr_vdist[i],arr_vdist[imin]);
+          }
+        }
+
+        // move particles to smaller and list
+        int i = 0;
+        double gcum = 0;
+        while (1) {
+          ipart = &particles[pidL[i]];
+          gcum += ipart->weight;
+          if (gcum >= fabs(dgLR)*0.5) break;
+          pidR[npR++] = pidL[i];
+          std::swap(pidL[i],pidL[npL-1]);
+          npL--;
+          i++;
+          if (i >= npL) break;
+        }
+      // right group too big
+      } else if (dgLR < -bst_weight_thresh) {
+        double arr_vdist[npR];
+        double i_vdist;
+        for (int i = 0; i < npR; i++) {
+          ipart = &particles[pidR[i]];
+          vmV[0] = ipart->v[0]-V[0];
+          vmV[1] = ipart->v[1]-V[1];
+          vmV[2] = ipart->v[2]-V[2];
+          i_vdist = fabs(MathExtra::dot3(vmV,maxevec));
+          arr_vdist[i] = i_vdist;
+        }
+        
+        // selection sort from smallest to largest distance
+        int imin;
+        double min_vdist = 0.0;
+        for (int i = 0; i < npR; i++) {
+          for (int j = i; j < npR; j++) {
+            if (j == i || arr_vdist[j] < min_vdist) {
+              imin = j;
+              min_vdist = arr_vdist[j];
+            }
+          }
+          if (imin != i) {
+            std::swap(pidR[i],pidR[imin]);
+            std::swap(arr_vdist[i],arr_vdist[imin]);
+          }
+        }
+
+        // move particles to smaller and list
+        int i = 0;
+        double gcum = 0;
+        while (1) {
+          ipart = &particles[pidR[i]];
+          gcum += ipart->weight;
+          if (gcum >= fabs(dgLR)*0.5) break;
+          pidL[npL++] = pidR[i];
+          std::swap(pidR[i],pidR[npR-1]);
+          npR--;
+          i++;
+          if (i >= npR) break;
+        }
+      }
+    } // END balance flag
+
+    for (int i = 0; i < npL; i++)
+      for (int j = 0; j < npR; j++)
+        if (pidL[i] == pidR[j]) error->one(FLERR,"duplicate");
+
+    /*gL = gR = 0.0;
+    for (int i = 0; i < npL; i++) {
+      ipart = &particles[pidL[i]];
+      gL += ipart->weight;
+      printf("L: %g\n", MathExtra::dot3(ipart->v,maxevec)-center);
+    }
+
+    for (int i = 0; i < npR; i++) {
+      ipart = &particles[pidR[i]];
+      gR += ipart->weight;
+      printf("R: %g\n", MathExtra::dot3(ipart->v,maxevec)-center);
+    }
+
+    printf("g: %g %g\n", gL, gR);
+
+    error->one(FLERR,"ck new groups");*/
 
     if(npL > Ngmin) group_bt(pidL,npL);
     if(npR > Ngmin) group_bt(pidR,npR);
