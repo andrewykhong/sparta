@@ -135,7 +135,7 @@ double CollideVSS::vremax_init(int igroup, int jgroup)
 double CollideVSS::attempt_collision(int icell, int np, double volume)
 {
   double fnum;
-  if (swpmflag) fnum = sweight_max*(1.0+pre_wtf*wtf);
+  if (swpm_flag) fnum = sweight_max*(1.0+pre_wtf*wtf);
   else fnum = update->fnum;
 
   double dt = update->dt;
@@ -201,7 +201,7 @@ int CollideVSS::test_collision(int icell, int igroup, int jgroup,
   double vro  = pow(vr2,1.0-params[ispecies][jspecies].omega);
 
   double ijsw = 1.0;
-  if (swpmflag) {
+  if (swpm_flag) {
     double isw = ip->weight*update->fnum;
     double jsw = jp->weight*update->fnum;
     ijsw = MAX(isw ,jsw)/sweight_max;

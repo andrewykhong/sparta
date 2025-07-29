@@ -542,10 +542,11 @@ void Collide::group_reduce()
     np = cinfo[icell].count;
 
     // scale max in cell count with cell level
-    level = cells[icell].level;
-    if (level == 1) cell_scale = 1.0;
-    else if (domain->dimension == 2) cell_scale = pow(4,level-1);
-    else cell_scale = pow(8,level-1);
+    cell_scale = 1.0;
+    //level = cells[icell].level;
+    //if (level == 1) cell_scale = 1.0;
+    //else if (domain->dimension == 2) cell_scale = pow(4,level-1);
+    //else cell_scale = pow(8,level-1);
 
     // upper bound to 1.5 times the max group size
     Ncmax_scale = MAX(Ncgmin,Ncmax/cell_scale); // make a user input

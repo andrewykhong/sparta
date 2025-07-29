@@ -516,10 +516,12 @@ void Collide::collisions()
   // variant for stochastic weighted collisions or not
 
   if (swpm_flag) {
+    // reduce first
+    if (reduceflag) group_reduce();
+    // then collide
     if (ngroups == 1) collisions_one_sw();
     else collisions_group_sw();
     particle->sort();
-    if (reduceflag) group_reduce();
   } else if (!ambiflag) {
     if (nearcp == 0) {
       if (ngroups == 1) collisions_one<0>();
