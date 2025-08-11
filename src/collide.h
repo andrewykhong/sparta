@@ -197,13 +197,14 @@ class Collide : protected Pointers {
 
   // methods for stochastic weight particle method
 
+  int idelete;
   int split(Particle::OnePart *&, Particle::OnePart *&,
             Particle::OnePart *&, Particle::OnePart *&);
   void group_reduce();
-  void group_bt(int*, int);
-  void reduce(int*, int, double, double *, double, double);
-  void reduce(int*, int, double, double *, double, double, double *);
-  void reduce(int*, int, double, double *, double, double, double *, double [3][3]);
+  void group_bt(int, int);
+  void reduce(int, int, double, double *, double, double);
+  void reduce(int, int, double, double *, double, double *, double);
+  void reduce(int, int, double, double *, double *, double [3][3], double);
   void remove_tiny();
 
   // misc

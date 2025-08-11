@@ -516,12 +516,12 @@ void Collide::collisions()
   // variant for stochastic weighted collisions or not
 
   if (swpm_flag) {
-    // reduce first
-    if (reduceflag) group_reduce();
     // then collide
     if (ngroups == 1) collisions_one_sw();
     else collisions_group_sw();
     particle->sort();
+    // reduce first
+    if (reduceflag) group_reduce();
   } else if (!ambiflag) {
     if (nearcp == 0) {
       if (ngroups == 1) collisions_one<0>();
@@ -540,8 +540,7 @@ void Collide::collisions()
   // e.g. compress_reactions may have reallocated particle->next vector
 
   if (ndelete) particle->compress_reactions(ndelete,dellist);
-  if (react) particle->sorted = 0;
-  if (swpm_flag) particle->sorted = 0;
+  if (react || swpm_flag) particle->sorted = 0;
 
   // accumulate running totals
 

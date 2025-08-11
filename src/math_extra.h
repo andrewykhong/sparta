@@ -78,6 +78,8 @@ namespace MathExtra {
   int mldivide3(const double mat[3][3], const double *vec, double *ans);
   int mldivide4(const double mat[4][4], const double *vec, double *ans);
 
+  void eigen3sym(const double mat[3][3], double *vec, double ans[3][3], int sort = -1);
+
   // quaternion operations
 
   inline void axisangle_to_quat(const double *v, const double angle,

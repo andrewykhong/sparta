@@ -12,6 +12,8 @@
    See the README file in the top-level SPARTA directory.
 ------------------------------------------------------------------------- */
 
+#include <algorithm>
+
 #include "spatype.h"
 #include "stdio.h"
 #include "string.h"
@@ -21,6 +23,80 @@
 using namespace SPARTA_NS;
 
 namespace MathExtra {
+
+// Modified from sandia.ai.gov
+
+void eigen3sym(double const m[3][3], double *eval, double evec[3][3], int sort) {
+
+    double msq[3][3];
+    MathExtra::times3(m,m,msq);
+
+    double trace_m = m[0][0] + m[1][1] + m[2][2];
+    double trace_msq = msq[0][0] + msq[1][1] + msq[2][2];
+
+    // Characteristic polynomial: det(A - λI) = 0
+    double a = 1;
+    double b = -trace_m;
+    double c = 0.5*(trace_m*trace_m-trace_msq);
+    double d = -MathExtra::det3(m);
+
+    // Solve the cubic equation aλ^3 + bλ^2 + cλ + d = 0 using Cardano's method
+    // We will use a numerical method to find the roots.
+
+    // Finding eigenvalues using Cardano's method for cubic equations
+    double q = (3 * c - b * b) / 9;
+    double r = (9 * b * c - 27 * d - 2 * b * b * b) / 54;
+    double discriminant = q * q * q + r * r;
+
+    if (discriminant > 0) {
+        // One real root and two complex roots
+        double s = cbrt(r + sqrt(discriminant));
+        double t = cbrt(r - sqrt(discriminant));
+        eval[0] = s + t - b / 3;
+        eval[1] = eval[2] = 0; // Placeholder for complex roots
+    } else {
+        // Three real roots
+        double theta = acos(r / sqrt(-q * q * q));
+        eval[0] = 2 * sqrt(-q) * cos(theta / 3) - b / 3;
+        eval[1] = 2 * sqrt(-q) * cos((theta + 2 * M_PI) / 3) - b / 3;
+        eval[2] = 2 * sqrt(-q) * cos((theta + 4 * M_PI) / 3) - b / 3;
+    }
+
+    // For each eigenvalue, compute the corresponding eigenvector
+    for (int i = 0; i < 3; i++) {
+        double lambda = eval[i];
+        double A[3][3] = {
+            {m[0][0] - lambda, m[0][1], m[0][2]},
+            {m[1][0], m[1][1] - lambda, m[1][2]},
+            {m[2][0], m[2][1], m[2][2] - lambda}
+        };
+
+        // Solve the system A * v = 0 using Gaussian elimination
+        double ievec[3] = {0, 0, 0};
+        A[0][0] = 1; // Normalize the first row
+        A[0][1] /= A[0][0];
+        A[0][2] /= A[0][0];
+
+        for (int j = 1; j < 3; j++) {
+            A[j][0] -= A[j][0] * A[0][0];
+            A[j][1] -= A[j][1] * A[0][1];
+            A[j][2] -= A[j][2] * A[0][2];
+        }
+
+        // Back substitution to find the eigenvector
+        ievec[2] = 1; // Set the last component to 1 for normalization
+        ievec[1] = -(A[1][2] * ievec[2]) / A[1][1];
+        ievec[0] = -(A[0][1] * ievec[1] + A[0][2] * ievec[2]) / A[0][0];
+
+        // Normalize the eigenvector
+        double norm = sqrt(ievec[0] * ievec[0] +
+                           ievec[1] * ievec[1] +
+                           ievec[2] * ievec[2]);
+        for (int j = 0; j < 3; j++) {
+            evec[i][j] = ievec[j] / norm; // Store normalized eigenvector
+        }
+    }
+}
 
 /* ----------------------------------------------------------------------
    solve Ax = b or M ans = v
