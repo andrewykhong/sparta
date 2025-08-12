@@ -631,29 +631,26 @@ void Collide::group_bt(int istart, int iend)
   int ispecies;
   double mass, psw, pmsw, vp[3];
   double Erot = 0.0;
-  double KE_tmp = 0.0;
   for (int p = istart; p < iend; p++) {
     ipart = &particles[plist[p]];
     ispecies = ipart->ispecies;
     mass = species[ispecies].mass;
 
-    psw = ipart->weight;
+    psw = ipart->weight * update->fnum;
     count += 1;
     pmsw = psw * mass;
     memcpy(vp, ipart->v, 3*sizeof(double));
    	gsum += psw;
-
     msum += pmsw;
     Erot += psw*ipart->erot;
     for (int i = 0; i < 3; i++) {
       mV[i] += (pmsw*vp[i]);
       uV[i] += vp[i];
-      KE_tmp += psw*vp[i]*vp[i];
-      //for (int j = 0; j < 3; j++) {
-      //  mVV[i][j] += (pmsw*vp[i]*vp[j]);
-      //  mVVV[i][j] += (pmsw*vp[i]*vp[j]*vp[j]);
-      //  uVV[i][j] += (vp[i]*vp[j]);
-      //}
+      for (int j = 0; j < 3; j++) {
+        mVV[i][j] += (pmsw*vp[i]*vp[j]);
+        mVVV[i][j] += (pmsw*vp[i]*vp[j]*vp[j]);
+        uVV[i][j] += (vp[i]*vp[j]);
+      }
     }
   }
 
@@ -678,14 +675,13 @@ void Collide::group_bt(int istart, int iend)
     ispecies = ipart->ispecies;
     mass = species[ispecies].mass;
 
-    psw = ipart->weight;
+    psw = ipart->weight * update->fnum;
     pmsw = psw * mass;
-    memcpy(vp, ipart->v, 3*sizeof(double));
 
     double c[3];
-    c[0] = vp[0]-V[0];
-    c[1] = vp[1]-V[1];
-    c[2] = vp[2]-V[2];    
+    c[0] = ipart->v[0]-V[0];
+    c[1] = ipart->v[1]-V[1];
+    c[2] = ipart->v[2]-V[2];    
     double csq = MathExtra::lensq3(c);
 
     for (int i = 0; i < 3; i++) {
@@ -698,6 +694,14 @@ void Collide::group_bt(int istart, int iend)
   // if group is small enough, merge the particles
 
   if (np <= Ngmax+gbuf) {
+    /*printf("rho: %g; n: %i; Ngmin: %i\n", gsum, np, Ngmin);
+    printf("KE: %g\n", mVV[0][0]+mVV[1][1]+mVV[2][2]);
+    printf("V: %g %g %g\n", V[0], V[1], V[2]);
+    printf("q: %g %g %g\n", q[0], q[1], q[2]);
+    printf("pij[0]: %g %g %g\n", pij[0][0], pij[0][1], pij[0][2]);
+    printf("pij[0]: %g %g %g\n", pij[1][0], pij[1][1], pij[1][2]);
+    printf("pij[0]: %g %g %g\n\n", pij[2][0], pij[2][1], pij[2][2]);*/
+
     // reduce based on type
     if (reduction_type == ENERGY) {
       // specific kinetic energy in center of mass reference
@@ -705,31 +709,86 @@ void Collide::group_bt(int istart, int iend)
       reduce(istart, iend, gsum, V, E, Erot);
     } else if (reduction_type == HEAT) {
       double E = (pij[0][0] + pij[1][1] + pij[2][2])/msum;
-      // specific heat flux
-      // q/(g*mass) where mass is particle mass in Rja paper
+      // divide heat flux by mass of species because only
+      // ... total weight is passed.
+      // only need to know
       ipart = &particles[plist[istart]];
       mass = species[ipart->ispecies].mass;
       for (int d = 0; d < 3; d++) q[d] /= mass;
       reduce(istart, iend, gsum, V, E, q, Erot);
     } else if (reduction_type == STRESS) {
-      printf("rho: %g\n", gsum);
-      printf("KE: %g\n", KE_tmp);
-      printf("V: %g %g %g\n", mV[0]/mass, mV[1]/mass, mV[2]/mass);
-      printf("q: %g %g %g\n", q[0], q[1], q[2]);
-      printf("pij[0]: %g %g %g\n", pij[0][0], pij[0][1], pij[0][2]);
-      printf("pij[0]: %g %g %g\n", pij[1][0], pij[1][1], pij[1][2]);
-      printf("pij[0]: %g %g %g\n", pij[2][0], pij[2][1], pij[2][2]);
-
       // mass-normalized heat flux
       for (int d = 0; d < 3; d++) q[d] = q[d]*gsum/msum;
       // in Lama paper, difference of half factor and assumes equal mass
       for (int i = 0; i < 3; i++)
         for (int j = 0; j < 3; j++)
-          pij[i][j] = pij[i][j]/msum*gsum*2.0;
+          pij[i][j] *= (gsum/msum);
       reduce(istart, iend, gsum, V, q, pij, Erot);
     }
-  // group still too large so divide further
 
+    /*
+    // check that the reduction is correct
+    gsum = msum = count = 0.0;
+    for (int i = 0; i < 3; i++) mV[i] = 0.0;
+
+    // find maximum particle weight
+
+    for (int p = istart; p < iend; p++) {
+      ipart = &particles[plist[p]];
+      ispecies = ipart->ispecies;
+      mass = species[ispecies].mass;
+      if (ipart->weight < 0) continue;
+
+      psw = ipart->weight * update->fnum;
+      count += 1;
+      pmsw = psw * mass;
+      memcpy(vp, ipart->v, 3*sizeof(double));
+     	gsum += psw;
+      msum += pmsw;
+      for (int i = 0; i < 3; i++)
+        mV[i] += (pmsw*vp[i]);
+    }
+
+    for (int i = 0; i < 3; i++) V[i] = mV[i]/msum;
+
+    for (int i = 0; i < 3; i++) {
+      q[i] = 0.0;
+      for (int j = 0; j < 3; j++) pij[i][j] = 0.0;
+    }
+
+    // manual commputation better
+    for (int p = istart; p < iend; p++) {
+      ipart = &particles[plist[p]];
+      ispecies = ipart->ispecies;
+      mass = species[ispecies].mass;
+      if (ipart->weight < 0) continue;
+
+      psw = ipart->weight * update->fnum;
+      pmsw = psw * mass;
+
+      double c[3];
+      c[0] = ipart->v[0]-V[0];
+      c[1] = ipart->v[1]-V[1];
+      c[2] = ipart->v[2]-V[2];    
+      double csq = MathExtra::lensq3(c);
+
+      for (int i = 0; i < 3; i++) {
+        q[i] += 0.5*pmsw*c[i]*csq;
+        for (int j = 0; j < 3; j++)
+          pij[i][j] += pmsw*c[i]*c[j];
+      }
+    }
+
+    printf("rho: %g; n: %g\n", gsum, count);
+    printf("KE: %g\n", mVV[0][0]+mVV[1][1]+mVV[2][2]);
+    printf("V: %g %g %g\n", V[0], V[1], V[2]);
+    printf("q: %g %g %g\n", q[0], q[1], q[2]);
+    printf("pij[0]: %g %g %g\n", pij[0][0], pij[0][1], pij[0][2]);
+    printf("pij[0]: %g %g %g\n", pij[1][0], pij[1][1], pij[1][2]);
+    printf("pij[0]: %g %g %g\n\n\n", pij[2][0], pij[2][1], pij[2][2]);
+    */
+
+  // group still too large so divide further
   } else {
 
     // Compute covariance matrix
@@ -765,8 +824,8 @@ void Collide::group_bt(int istart, int iend)
 
     // Separate based on particle velocity
 
-    if (!weighted)
-      for (int i = 0; i < 3; i++) V[i] = uV[i]/count;
+    //if (!weighted)
+    //  for (int i = 0; i < 3; i++) V[i] = uV[i]/count;
 
     double center = V[0]*maxevec[0] + V[1]*maxevec[1] + V[2]*maxevec[2];
     int cp = istart;
@@ -775,8 +834,9 @@ void Collide::group_bt(int istart, int iend)
     for (int i = istart; i < iend; i++) {
       ipart = &particles[plist[i]];
       if (MathExtra::dot3(ipart->v,maxevec) < center) {
-        std::swap(plist[cp++],plist[i]);
+        std::swap(plist[cp],plist[i]);
         gL += ipart->weight;
+        cp++;
       } else {
         gR += ipart->weight;
       }
@@ -798,8 +858,14 @@ void Collide::group_bt(int istart, int iend)
       int npmove =
         static_cast<int>(std::floor(fabs(dnpLR)*0.5+random->uniform()));
 
+      if (cp <= istart or cp >= iend) {
+        printf("bad cp before: %i %i %i %i\n", cp, istart, iend, npmove);
+        error->one(FLERR,"ck");
+      }
+
       // left group too big
       if (dnpLR > bst_number_thresh) {
+        // compute distances
         int np_group = cp-istart;
         double vel_dist[np_group];
         double dist;
@@ -812,25 +878,14 @@ void Collide::group_bt(int istart, int iend)
           vel_dist[i] = dist;
         }
 
-        // lambda function
-        // sorts from greatest to least
-        // doesn't work (indices not lining up) - this is optimal
-        /*std::sort(plist+istart,plist+istart+cp,
-                  [&vel_dist,istart](int a, int b) {
-                    printf("%i/%i, %g,%g - %i\n",
-                      a-istart,b-istart,
-                      vel_dist[a-istart],
-                      vel_dist[b-istart],
-                      vel_dist[a-istart] > vel_dist[b-istart]);
-                    return vel_dist[a-istart] > vel_dist[b-istart];
-                  });*/
-
         // selection sort from greatest to smallest distance
         int iswap;
-        double max_dist = 0.0;
+        double max_dist;
         for (int i = istart; i < cp; i++) {
-          for (int j = i; j < cp; j++) {
-            if (j == i || vel_dist[j] > max_dist) {
+          iswap = i;
+          max_dist = vel_dist[i];
+          for (int j = i+1; j < cp; j++) {
+            if (vel_dist[j] > max_dist) {
               iswap = j;
               max_dist = vel_dist[j];
             }
@@ -860,10 +915,12 @@ void Collide::group_bt(int istart, int iend)
 
         // selection sort from smallest to greatest distance
         int iswap;
-        double min_dist = 0.0;
+        double min_dist;
         for (int i = cp; i < iend; i++) {
-          for (int j = i; j < iend; j++) {
-            if (j == i || vel_dist[j] < min_dist) {
+          iswap = i;
+          min_dist = vel_dist[i];
+          for (int j = i+1; j < iend; j++) {
+            if (vel_dist[j] < min_dist) {
               iswap = j;
               min_dist = vel_dist[j];
             }
@@ -878,7 +935,12 @@ void Collide::group_bt(int istart, int iend)
         cp += npmove;
 
       }
+
     } // do weight balance later
+
+    if (cp <= istart or cp >= iend) {
+      error->one(FLERR,"BAD CP");
+    }
 
     group_bt(istart,cp);
     group_bt(cp,iend);
@@ -887,351 +949,6 @@ void Collide::group_bt(int istart, int iend)
   return;
 }
 
-/* ----------------------------------------------------------------------
-   Merge particles using energy scheme
-------------------------------------------------------------------------- */
-void Collide::reduce(int istart, int iend,
-                     double rho, double *V,
-                     double E, double Erot)
-{
-  // reduced particles chosen as first two in group
-
-  Particle::OnePart *particles = particle->particles;
-  Particle::OnePart *ipart, *jpart;
-
-  int ip, jp;
-  int np = iend-istart;
-  ip = np * random->uniform() + istart;
-  jp = np * random->uniform() + istart;
-  while (ip == jp) jp = np * random->uniform() + istart;
-
-  ipart = &particles[plist[ip]];
-  jpart = &particles[plist[jp]];
-
-  // find direction of velocity wrt CoM frame
-
-  double theta = 2.0 * 3.14159 * random->uniform();
-  double phi = acos(1.0 - 2.0 * random->uniform());
-  double uvec[3];
-  uvec[0] = sin(phi) * cos(theta);
-  uvec[1] = sin(phi) * sin(theta);
-  uvec[2] = cos(phi);
-
-  // set reduced particle velocities
-  // convert translational temperature to kinetic energy
-  double sqE = sqrt(E);
-  for (int d = 0; d < 3; d++) {
-    ipart->v[d] = V[d] + sqE*uvec[d];
-    jpart->v[d] = V[d] - sqE*uvec[d];
-  }
-
-  // set reduced particle rotational energies
-
-  ipart->erot = Erot/rho;
-  jpart->erot = Erot/rho;
-
-  // set reduced particle weights
-
-  ipart->weight = rho*0.5;
-  jpart->weight = rho*0.5;
-
-  // if there is bad weight, only create one and clone
-
-  if (E <= 0)
-    error->one(FLERR,"Negative Energy");
-
-  // delete other particles
-
-  for (int i = istart; i < iend; i++) {
-    if (i == ip || i == jp) continue;
-    if (ndelete == maxdelete) {
-      maxdelete += DELTADELETE;
-      memory->grow(dellist,maxdelete,"collide:dellist");
-    }
-    ipart = &particles[plist[i]];
-    ipart->weight = -1.0;
-    dellist[ndelete++] = plist[i];
-    idelete++;
-  }
-
-  return;
-}
-
-/* ---------------------------------------------------------------------
-   Merge particles using heat flux scheme
------------------------------------------------------------------------- */
-void Collide::reduce(int istart, int iend,
-                     double rho, double *V,
-                     double E, double *q,
-                     double Erot)
-{
-  // reduced particles chosen as first two in group
-
-  Particle::OnePart *particles = particle->particles;
-  Particle::OnePart *ipart, *jpart;
-
-  int ip, jp;
-  int np = iend-istart;
-  ip = np * random->uniform() + istart;
-  jp = np * random->uniform() + istart;
-  while (ip == jp) jp = np * random->uniform() + istart;
-
-  ipart = &particles[plist[ip]];
-  jpart = &particles[plist[jp]];
-
-  // precompute vars from macro props
-  double eps = sqrt(E);
-  // has already been divided by rho from earlier
-  double qmag = sqrt(q[0]*q[0] + q[1]*q[1] + q[2]*q[2]);
-  double qge = qmag / pow(eps,3.0);
-  double itheta = qge + sqrt(1.0 + qge*qge);
-  double alpha = eps*itheta;
-  double beta = eps/itheta;
-
-  // find direction of velocity wrt CoM frame
-
-  double uvec[3];
-  if (itheta < SMALL) { // revert back to energy scheme
-    double theta = 2.0 * 3.14159 * random->uniform();
-    double phi = acos(1.0 - 2.0 * random->uniform());
-    uvec[0] = sin(phi) * cos(theta);
-    uvec[1] = sin(phi) * sin(theta);
-    uvec[2] = cos(phi);
-    alpha = beta = eps;
-  } else {
-    for (int d = 0; d < 3; d++) uvec[d] = q[d]/qmag;
-  }
-
-  // set reduced particle velocities
-
-  for (int d = 0; d < 3; d++) {
-    ipart->v[d] = V[d] + alpha*uvec[d];
-    jpart->v[d] = V[d] - beta*uvec[d];
-
-    if (ipart->v[d] != ipart->v[d]) {
-      printf("alpha %g beta %g eps %g q %g %g %g\n", 
-              alpha, beta, eps, q[0], q[1], q[2]);
-      error->one(FLERR,"ck");
-    }
-  }
-
-
-
-  // set reduced particle weights
-
-  double isw = rho/(1.0+itheta*itheta);
-  double jsw = rho - isw;
-
-  // set reduced particle rotational energies
-
-  ipart->erot = Erot/rho;
-  jpart->erot = Erot/rho;
-
-  // set reduced particle weights
-
-  ipart->weight = isw;
-  jpart->weight = jsw;
-
-  // if there is bad weight, only create one and clone
-
-  if (isw != isw || isw <= 0.0 || jsw != jsw || jsw <= 0.0) {
-    printf("rho: %g\n", rho);
-    printf("V: %g %g %g\n", V[0], V[1], V[2]);
-    printf("q: %g %g %g\n", q[0], q[1], q[2]);
-    printf("eps: %g\n", eps);
-    printf("qge: %g\n", qge);
-    error->one(FLERR,"Bad weights");
-  }
-
-  // delete other particles
-
-  for (int i = istart; i < iend; i++) {
-    if (i == ip || i == jp) continue;
-    if (ndelete == maxdelete) {
-      maxdelete += DELTADELETE;
-      memory->grow(dellist,maxdelete,"collide:dellist");
-    }
-    ipart = &particles[plist[i]];
-    ipart->weight = -1.0;
-    dellist[ndelete++] = plist[i];
-    idelete++;
-  }
-
-  return;
-}
-
-/* ---------------------------------------------------------------------
-   Merge particles using stress scheme
------------------------------------------------------------------------- */
-// TODO : Check that stress tensor from group is conserved
-void Collide::reduce(int istart, int iend,
-                     double rho, double *V,
-                     double *q, double pij[3][3],
-                     double Erot)
-{
-  // find eigenpairs of stress tensor
-
-  double ilambda[3], itheta[3][3];
-  int ierror = MathEigen::jacobi3(pij,ilambda,itheta);
-
-  // find number of non-zero eigenvalues
-  // columns are eigenvectors
-
-  int nK = 0;
-  for (int i = 0; i < 3; i++) {
-    if (fabs(ilambda[i]) >= SMALL && ilambda[i] > 0) {
-      ilambda[nK] = ilambda[i];
-      for (int d = 0; d < 3; d++) itheta[d][nK] = itheta[d][i];
-      nK++;
-    }
-  }
-
-  // iterate through nK pairs
-
-  Particle::OnePart *particles = particle->particles;
-  Particle::OnePart *ipart, *jpart;
-
-  double qhat, c_theta, gam;
-  double isw, jsw;
-  double uvec[3];
-
-  for (int iK = 0; iK < nK; iK++) {
-
-    // reduced particles chosen as first two
-
-    ipart = &particles[plist[2*iK+istart]];
-    jpart = &particles[plist[2*iK+1+istart]];
-
-    // project heat flux to one of the eigenvectors
-    qhat = itheta[0][iK]*q[0] + itheta[1][iK]*q[1] + itheta[2][iK]*q[2];
-    if (qhat < 0)
-      for (int d = 0; d < 3; d++) itheta[d][iK] *= -1.0;
-    qhat = fabs(qhat);
-
-    // factor to scale theta for setting final velocity
-    c_theta = sqrt(nK*ilambda[iK]/rho);
-
-    gam = sqrt(rho)*qhat/sqrt(nK)/pow(ilambda[iK],1.5);
-    gam = gam + sqrt(1.0 + gam*gam);
-
-    // set reduced particle velocities
-
-    for (int d = 0; d < 3; d++) {
-      ipart->v[d] = V[d] + gam*c_theta*itheta[d][iK];
-      jpart->v[d] = V[d] - 1.0/gam*c_theta*itheta[d][iK];
-    }
-
-    // set reduced particle weights
-
-    isw = rho/(nK*(1.0+gam*gam));
-    jsw = rho/nK - isw;
-
-    // if there is bad weight, only create one and clone
-
-    if (isw != isw || isw <= 0.0 || jsw != jsw || jsw <= 0.0) {
-      error->one(FLERR,"Bad Weights");
-    }
-
-    // set reduced particle rotational energies
-
-    ipart->erot = Erot/rho/nK;
-    jpart->erot = Erot/rho/nK;
-
-    // set reduced weights
-
-    ipart->weight = isw;
-    jpart->weight = jsw;
-
-
-  } // end nK
-  
-
-  // check if right
-
-  double rho_tmp = 0.0;
-  double V_tmp[3];
-  V_tmp[0] = V_tmp[1] = V_tmp[2] = 0.0;
-  double KE_tmp = 0.0;
-
-  for (int iK = 0; iK < nK; iK++) {
-
-    // reduced particles chosen as first two
-
-    ipart = &particles[plist[2*iK+istart]];
-    jpart = &particles[plist[2*iK+1+istart]];
-
-    // set reduced particle velocities
-
-    rho_tmp += ipart->weight + jpart->weight;
-    for (int d = 0; d < 3; d++) {
-      V_tmp[d] += ipart->v[d]*ipart->weight;
-      V_tmp[d] += jpart->v[d]*jpart->weight;
-    }
-  }
-
-  printf("%g = %g\n", rho, ipart->weight+jpart->weight);
-  KE_tmp = ipart->weight*(
-    ipart->v[0]*ipart->v[0] +
-    ipart->v[1]*ipart->v[1] +
-    ipart->v[2]*ipart->v[2]);
-  KE_tmp += jpart->weight*(
-    jpart->v[0]*jpart->v[0] +
-    jpart->v[1]*jpart->v[1] +
-    jpart->v[2]*jpart->v[2]);
-  KE_tmp /= rho;
-
-  V_tmp[0] = ipart->weight*ipart->v[0]+jpart->weight*jpart->v[0];
-  V_tmp[1] = ipart->weight*ipart->v[1]+jpart->weight*jpart->v[1];
-  V_tmp[2] = ipart->weight*ipart->v[2]+jpart->weight*jpart->v[2];
-
-  V_tmp[0] /= rho;
-  V_tmp[1] /= rho;
-  V_tmp[2] /= rho;
-
-  double q_tmp[3];
-  q_tmp[0] = q_tmp[1] = q_tmp[2] = 0.0;
-
-  double psw = ipart->weight;
-  double c[3];
-  c[0] = ipart->v[0]-V[0];
-  c[1] = ipart->v[1]-V[1];
-  c[2] = ipart->v[2]-V[2];    
-  double csq = MathExtra::lensq3(c);
-
-  for (int i = 0; i < 3; i++) q_tmp[i] += 0.5*psw*c[i]*csq;
-
-  psw = jpart->weight;
-  c[0] = jpart->v[0]-V[0];
-  c[1] = jpart->v[1]-V[1];
-  c[2] = jpart->v[2]-V[2];    
-  csq = MathExtra::lensq3(c);
-
-  for (int i = 0; i < 3; i++) q_tmp[i] += 0.5*psw*c[i]*csq;
-
-  printf("Vin: %g %g %g\n", V[0], V[1], V[2]);
-  printf("%g %g %g; %g\n", V_tmp[0], V_tmp[1], V_tmp[2], KE_tmp);
-  printf("q: %g %g %g\n", q_tmp[0], q[1], q[2]);
-
-  printf("pij[0]: %g %g %g\n", pij[0][0], pij[0][1], pij[0][2]);
-  printf("pij[0]: %g %g %g\n", pij[1][0], pij[1][1], pij[1][2]);
-  printf("pij[0]: %g %g %g\n", pij[2][0], pij[2][1], pij[2][2]);
-  error->one(FLERR,"ck");
-
-  // delete other particles
-  for (int i = istart; i < iend; i++) {
-    if (i < 2*nK + istart) continue;
-    if (ndelete == maxdelete) {
-      maxdelete += DELTADELETE;
-      memory->grow(dellist,maxdelete,"collide:dellist");
-    }
-    ipart = &particles[plist[i]];
-    ipart->weight = -1.0;
-    dellist[ndelete++] = plist[i];
-    idelete++;
-  }
-
-  return;
-}
 
 /* ----------------------------------------------------------------------
    Delete tiny weighted particles
