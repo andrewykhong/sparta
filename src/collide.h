@@ -152,9 +152,8 @@ class Collide : protected Pointers {
   double min_weight;
 
   // for equalizing groups
-  int balance_swpm_flag;
-  int bst_number_thresh; // ensures equal number of particles per-group
-  double bst_weight_thresh; // same as above but for weights
+  int balance_flag;
+  double bst_thresh; // same as above but for weights
 
   // inline functions
   // add particle N to Igroup and set its g2p entry in plist to K

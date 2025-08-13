@@ -99,7 +99,7 @@ Collide::Collide(SPARTA *sparta, int, char **arg) : Pointers(sparta)
   elist = NULL;
 
   // stochastic weighted particle method
-  balance_swpm_flag = NO_BALANCE;
+  balance_flag = NO_BALANCE;
   swpm_flag = 0;
   sweight_max = update->fnum;
   reduceflag = 0;
@@ -423,25 +423,18 @@ void Collide::modify_params(int narg, char **arg)
       wtf = atof(arg[iarg+2]);
       if (wtf < 0) error->all(FLERR,"Illegal collide_modify command");
       iarg += 3;
-    } else if (strcmp(arg[iarg],"notiny") == 0) {
-      remove_min_flag = 1;
-      if (iarg+2 > narg) error->all(FLERR,"Illegal collide_modify command");
-      bst_number_thresh = atoi(arg[iarg+1]);
-      if (min_weight < 0)
-        error->all(FLERR,"Minimum weight must be a non-zero value");
-      iarg += 2;
     } else if (strcmp(arg[iarg],"balance_number") == 0) {
-      balance_swpm_flag = NUMBER_BALANCE;
+      balance_flag = NUMBER_BALANCE;
       if (iarg+2 > narg) error->all(FLERR,"Illegal collide_modify command");
-      bst_number_thresh = atoi(arg[iarg+1]);
-      if (bst_number_thresh < 0)
-        error->all(FLERR,"Minimum weight must be a non-zero value");
+      bst_thresh = atof(arg[iarg+1]);
+      if (bst_thresh < 0)
+        error->all(FLERR,"Minimum count must be a non-zero value");
       iarg += 2;
     } else if (strcmp(arg[iarg],"balance_weight") == 0) {
-      balance_swpm_flag = WEIGHT_BALANCE;
+      balance_flag = WEIGHT_BALANCE;
       if (iarg+2 > narg) error->all(FLERR,"Illegal collide_modify command");
-      bst_weight_thresh = atof(arg[iarg+1]);
-      if (bst_weight_thresh < 0)
+      bst_thresh = atof(arg[iarg+1]);
+      if (bst_thresh < 0)
         error->all(FLERR,"Minimum weight must be a non-zero value");
       iarg += 2;
     } else if (strcmp(arg[iarg],"reduce") == 0) {
@@ -518,7 +511,7 @@ void Collide::collisions()
   if (swpm_flag) {
     // then collide
     if (ngroups == 1) collisions_one_sw();
-    else collisions_group_sw();
+    //else collisions_group_sw();
     particle->sort();
     // reduce first
     if (reduceflag) group_reduce();
