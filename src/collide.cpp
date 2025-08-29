@@ -101,6 +101,7 @@ Collide::Collide(SPARTA *sparta, int, char **arg) : Pointers(sparta)
   // stochastic weighted particle method
   balance_flag = NO_BALANCE;
   swpm_flag = 0;
+  adapt_flag = 1;
   sweight_max = update->fnum;
   reduceflag = 0;
   Ncmin = Ncmax = Ngmin = Ngmax = 0;
@@ -108,7 +109,7 @@ Collide::Collide(SPARTA *sparta, int, char **arg) : Pointers(sparta)
   pLU = NULL;
   remove_min_flag = 0;
   weighted = 1;
-  Ncgmin = 10;
+  Ncgmin = 8;
 
   // used if near-neighbor model is invoked
 
@@ -454,16 +455,22 @@ void Collide::modify_params(int narg, char **arg)
       Ngmax = atoi(arg[iarg+4]);
       if(Ngmax < Ngmin) error->all(FLERR,"Max group size too small");
       iarg += 5;
-    } else if (strcmp(arg[iarg],"weighted") == 0) {
+    } else if (strcmp(arg[iarg],"adapt") == 0) {
       if (iarg+2 > narg) error->all(FLERR,"Illegal collide_modify command");
-      if (strcmp(arg[iarg+1],"no") == 0) weighted = 0;
-      else if (strcmp(arg[iarg+1],"yes") == 0) weighted = 1;
+      if (strcmp(arg[iarg+1],"no") == 0) adapt_flag = 0;
+      else if (strcmp(arg[iarg+1],"yes") == 0) adapt_flag = 1;
       else error->all(FLERR,"Illegal collide_modify command");
       iarg += 2;
     } else if (strcmp(arg[iarg],"cellmin") == 0) {
       if (iarg+2 > narg) error->all(FLERR,"Illegal collide_modify command");
       Ncgmin = atof(arg[iarg+1]);
       if (Ncgmin <= 0) error->all(FLERR,"Minimum cell count must be greater than 0");
+      iarg += 2;
+    } else if (strcmp(arg[iarg],"weighted") == 0) {
+      if (iarg+2 > narg) error->all(FLERR,"Illegal collide_modify command");
+      if (strcmp(arg[iarg+1],"no") == 0) weighted = 0;
+      else if (strcmp(arg[iarg+1],"yes") == 0) weighted = 1;
+      else error->all(FLERR,"Illegal collide_modify command");
       iarg += 2;
     } else error->all(FLERR,"Illegal collide_modify command");
   }

@@ -85,8 +85,8 @@ void Collide::reduce(int istart, int iend,
 
   // set reduced particle rotational energies
 
-  ipart->erot = Erot/rho;
-  jpart->erot = Erot/rho;
+  ipart->erot = Erot/(rho*0.5);
+  jpart->erot = Erot/(rho*0.5);
 
   // set reduced particle weights
 
@@ -95,8 +95,7 @@ void Collide::reduce(int istart, int iend,
 
   // if there is bad weight, only create one and clone
 
-  if (E <= 0)
-    error->one(FLERR,"Negative Energy");
+  if (E < 0) error->one(FLERR,"Negative Energy");
 
   // delete other particles
 
@@ -139,6 +138,7 @@ void Collide::reduce(int istart, int iend,
 
   // precompute vars from macro props
   double eps = sqrt(E);
+  if (eps <= 1e-16) eps = 0.0;
   // has already been divided by rho from earlier
   double qmag = sqrt(q[0]*q[0] + q[1]*q[1] + q[2]*q[2]);
   double qge = qmag / pow(eps,3.0) / rho;
@@ -174,8 +174,8 @@ void Collide::reduce(int istart, int iend,
 
   // set reduced particle rotational energies
 
-  ipart->erot = Erot/rho;
-  jpart->erot = Erot/rho;
+  ipart->erot = Erot/isw;
+  jpart->erot = Erot/jsw;
 
   // set reduced particle weights
 
@@ -188,7 +188,7 @@ void Collide::reduce(int istart, int iend,
     printf("rho: %g\n", rho);
     printf("V: %g %g %g\n", V[0], V[1], V[2]);
     printf("q: %g %g %g\n", q[0], q[1], q[2]);
-    printf("eps: %g\n", eps);
+    printf("eps: %g: E: %g\n", eps, E);
     printf("qge: %g\n", qge);
     error->one(FLERR,"Bad weights");
   }
@@ -222,20 +222,43 @@ void Collide::reduce(int istart, int iend,
   // find eigenpairs of stress tensor
 
   double ilambda[3], itheta[3][3];
-  int ierror = MathEigen::jacobi3(pij,ilambda,itheta);
+
+  //MathEigen::jacobi3(pijn,ilambda,itheta);
+  bool converged = jacobiEigen(pij,ilambda,itheta);
+  //if (not converged) analytic(pij,ilambda,itheta);
+
+  /*for (int i = 0; i < 3; i++) {
+    if (ilambda[i] < 0.0) {
+      printf("pij: %g %g %g\n", pij[0][0], pij[0][1], pij[0][2]);
+      printf("   : %g %g %g\n", pij[1][0], pij[1][1], pij[1][2]);
+      printf("   : %g %g %g\n", pij[2][0], pij[2][1], pij[2][2]);
+
+      printf("%g - (%g %g %g)\n",
+        ilambda[0], itheta[0][0], itheta[1][0], itheta[2][0]);
+      printf("%g - (%g %g %g)\n",
+        ilambda[1], itheta[0][1], itheta[1][1], itheta[2][1]);
+      printf("%g - (%g %g %g)\n",
+        ilambda[2], itheta[0][2], itheta[1][2], itheta[2][2]);
+      error->one(FLERR,"Negative eigenvalue");
+    }
+  }*/
 
   // find number of non-zero eigenvalues
   // columns are eigenvectors
+  // can at times find a "negative" eigenvalue
+  // I believe these are due to those eigenvalues being very close to zero
 
   int nK = 0;
   for (int i = 0; i < 3; i++) {
-    if (fabs(ilambda[i]) > SMALL) {
-      ilambda[nK] = ilambda[i];
-      for (int d = 0; d < 3; d++) itheta[d][nK] = itheta[d][i];
+    if (ilambda[i] > SMALL) {
+      if (i != nK) {
+        ilambda[nK] = ilambda[i];
+        for (int d = 0; d < 3; d++) itheta[nK][d] = itheta[i][d];
+      }
       nK++;
     }
   }
-
+  
   // iterate through nK pairs
 
   Particle::OnePart *particles = particle->particles;
@@ -244,8 +267,12 @@ void Collide::reduce(int istart, int iend,
   double qhat, c_theta, gam, igam;
   double isw, jsw;
   double uvec[3];
+  double ipair = 0;
 
   for (int iK = 0; iK < nK; iK++) {
+
+    if (ilambda[iK] <= SMALL)
+      error->one(FLERR,"Bad eigenvalue");
 
     // reduced particles chosen as first two
 
@@ -279,19 +306,30 @@ void Collide::reduce(int istart, int iend,
     // if there is bad weight, only create one and clone
 
     if (isw != isw || isw <= 0.0 || jsw != jsw || jsw <= 0.0) {
+      printf("pij: %g %g %g\n", pij[0][0], pij[0][1], pij[0][2]);
+      printf("   : %g %g %g\n", pij[1][0], pij[1][1], pij[1][2]);
+      printf("   : %g %g %g\n", pij[2][0], pij[2][1], pij[2][2]);
+
+      printf("gam: %g; rho: %g; qhat: %g\n",
+        igam, rho, qhat);
+      printf("%g - (%g %g %g)\n",
+        ilambda[0], itheta[0][0], itheta[1][0], itheta[2][0]);
+      printf("%g - (%g %g %g)\n",
+        ilambda[1], itheta[0][1], itheta[1][1], itheta[2][1]);
+      printf("%g - (%g %g %g)\n",
+        ilambda[2], itheta[0][2], itheta[1][2], itheta[2][2]);
       error->one(FLERR,"Bad Weights");
     }
 
     // set reduced particle rotational energies
 
-    ipart->erot = Erot/rho/nK;
-    jpart->erot = Erot/rho/nK;
+    ipart->erot = Erot/isw;
+    jpart->erot = Erot/jsw;
 
     // set reduced weights
 
     ipart->weight = isw/update->fnum;
     jpart->weight = jsw/update->fnum;
-
 
   } // end nK
   
@@ -310,3 +348,147 @@ void Collide::reduce(int istart, int iend,
 
   return;
 }
+
+/* ---------------------------------------------------------------------
+   Jacobi rotation to find eigenpairs
+------------------------------------------------------------------------ */
+bool Collide::jacobiEigen(double const mat[3][3], double *eval, double evec[3][3], int max_iterations, double max_tolerance)
+{
+  // Initialize eigenvectors to the identity matrix
+  for (int i = 0; i < 3; i++)
+    for (int j = 0; j < 3; j++)
+      evec[i][j] = (i==j) ? 1.0 : 0.0;
+
+  // copy the matrix
+  double A[3][3] = {{mat[0][0], mat[0][1], mat[0][2]},
+                    {mat[1][0], mat[1][1], mat[1][2]},
+                    {mat[2][0], mat[2][1], mat[2][2]}};
+
+  // normalize A and shift eigenvalues to help convergence
+
+  double scale = 0.0;
+  for (int i = 0; i < 3; i++)
+    for (int j = 0; j < 3; j++)
+      scale = MAX(scale,fabs(A[i][j]));
+
+  double lambda_shift = 1.5;
+  for (int i = 0; i < 3; i++) {
+    for (int j = 0; j < 3; j++) A[i][j] = A[i][j]/scale;
+    A[i][i] += lambda_shift;
+  }
+
+  bool converged = false;
+  for (int iter = 0; iter < max_iterations; ++iter) {
+
+    // Find the largest off-diagonal element
+    double maxVal = 0.0;
+    int p = 0, q = 1;
+    for (int i = 0; i < 3; i++) {
+      for (int j = i + 1; j < 3; j++) {
+        if (fabs(A[i][j]) > maxVal) {
+          maxVal = fabs(A[i][j]);
+          p = i;
+          q = j;
+        }
+      }
+    }
+
+    // Check for convergence
+    if (maxVal < max_tolerance) {
+      converged = true;
+      break;
+    }
+
+    // Compute the Jacobi rotate
+    jacobiRotate(A, evec, p, q);
+  }
+
+  // if not converged, use analytic
+  if (not converged) return false;
+
+  // Extract eigenvalues from the diagonal of A
+  for (int i = 0; i < 3; i++) eval[i] = (A[i][i]-lambda_shift)*scale;
+  return true;
+}
+
+/* ---------------------------------------------------------------------
+   Jacobi rotation to find eigenpairs
+------------------------------------------------------------------------ */
+void Collide::jacobiRotate(double A[3][3], double V[3][3], int p, int q)
+{
+  if (A[p][q] == 0.0) return;
+
+  double app = A[p][p];
+  double aqq = A[q][q];
+  double apq = A[p][q];
+
+  double phi;
+  if (fabs(aqq-app) < 1E-50) phi = (apq > 0) ? M_PI*0.25 : -M_PI*0.25;
+  else phi = 0.5*atan2(2.0*apq,aqq-app);
+
+  double c = cos(phi);
+  double s = sin(phi);
+
+  for (int j = 0; j < 3; j++) {
+    double apj = A[p][j];
+    double aqj = A[q][j];
+    A[p][j] = c*apj-s*aqj;
+    A[q][j] = s*apj+c*aqj;
+  }
+
+  for (int i = 0; i < 3; i++) {
+    double aip = A[i][p];
+    double aiq = A[i][q];
+    A[i][p] = c*aip-s*aiq;
+    A[i][q] = s*aip+c*aiq;
+  }
+
+  A[p][q] = A[q][p] = 0.0;
+
+  for (int i = 0; i < 3; i++) {
+    double vip = V[i][p];
+    double viq = V[i][q];
+    V[i][p] = c*vip-s*viq;
+    V[i][q] = s*vip+c*viq;
+  }
+}
+
+/* ---------------------------------------------------------------------
+   Jacobi rotation to find eigenpairs
+------------------------------------------------------------------------ */
+/*void Collide::analytic(double const mat[3][3], double *eval, double evec[3][3])
+{
+  double m00 = mat[0][0], m01 = mat[0][1], m02 = mat[0][2];
+  double m11 = mat[1][1], m12 = mat[1][2];
+  double m22 = mat[2][2];
+
+  // initialize eigenvectors with unit matrix
+  for (int i = 0; i < 3; i++)
+    for (int j = 0; j < 3; j++)
+      evec[i][j] = (i==j) ? 1.0 : 0.0;
+
+  double p1 = m01*m01 + m02*m02 + m12*m12;
+  if (p1 < 1E-50) {
+    eval[0] = m00;
+    eval[1] = m11;
+    eval[2] = m22;
+  }
+
+  double q = (m00+m11+m22)/3.0;
+  double p2 = (m00-q)*(m00-q)+(m11-q)*(m11-q)+(m22-q)*(m22-q))+2.0*p1;
+  double p = sqrt(p2/6.0);
+
+  double B[3][3];
+  for (int i = 0; i < 3; i++)
+    for (int j = 0; j < 3; j++)
+      B[i][j] = (A[i][j] - ( (i==j) ? q : 0 ))/p;
+
+  
+
+
+
+
+}*/
+
+/* --------------------------------------------------------------------- */
+

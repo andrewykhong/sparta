@@ -26,7 +26,7 @@ namespace MathExtra {
 
 // Modified from sandia.ai.gov
 
-void eigen3sym(double const m[3][3], double *eval, double evec[3][3], int sort) {
+void eigen3sym(double const m[3][3], double *eval, double evec[3][3]) {
 
     double msq[3][3];
     MathExtra::times3(m,m,msq);

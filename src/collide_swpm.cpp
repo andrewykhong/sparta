@@ -65,7 +65,6 @@ void Collide::collisions_one_sw()
   int *next = particle->next;
 
   double isw;
-  int level;
   double cell_scale;
 
   for (int icell = 0; icell < nglocal; icell++) {
@@ -104,18 +103,23 @@ void Collide::collisions_one_sw()
     sweight_max *= update->fnum;
 
     // scale max in cell count with cell level
-    cell_scale = 1.0;
-    //level = cells[icell].level;
-    //if (level == 1) cell_scale = 1.0;
-    //else if (domain->dimension == 2) cell_scale = pow(4,level-1);
-    //else cell_scale = pow(8,level-1);
+    if (adapt_flag) {
+      int level = cells[icell].level;
+      if (level == 1) cell_scale = 1.0;
+      else if (domain->dimension == 2) cell_scale = pow(4,level-1);
+      else cell_scale = pow(8,level-1);
+    } else {
+      cell_scale = 1.0;
+    }
 
     // attempt = exact collision attempt count for all particles in cell
     // nattempt = rounded attempt with RN
     // if no attempts, continue to next grid cell
 
-    if (np >= Ncmin*cell_scale && Ncmin > 0.0) pre_wtf = 0.0;
-    else pre_wtf = 1.0;
+    if (np >= MAX(Ncgmin*0.5,Ncmin/cell_scale) && Ncmin > 0.0)
+      pre_wtf = 0.0;
+    else
+      pre_wtf = 1.0;
 
     attempt = attempt_collision(icell,np,volume);
     nattempt = static_cast<int> (attempt);
@@ -338,7 +342,6 @@ void Collide::group_reduce()
   double d1, d2;
   double lLim, uLim;
   int npL, npLU;
-  int level;
   double cell_scale, Ncmax_scale;
   int total_iter;
 
@@ -346,14 +349,17 @@ void Collide::group_reduce()
     np = cinfo[icell].count;
 
     // scale max in cell count with cell level
-    cell_scale = 1.0;
-    //level = cells[icell].level;
-    //if (level == 1) cell_scale = 1.0;
-    //else if (domain->dimension == 2) cell_scale = pow(4,level-1);
-    //else cell_scale = pow(8,level-1);
+    if (adapt_flag) {
+      int level = cells[icell].level;
+      if (level == 1) cell_scale = 1.0;
+      else if (domain->dimension == 2) cell_scale = pow(4,level-1);
+      else cell_scale = pow(8,level-1);
+    } else {
+      cell_scale = 1.0;
+    }
 
-    // upper bound to 1.5 times the max group size
-    Ncmax_scale = MAX(Ncgmin,Ncmax/cell_scale); // make a user input
+    // upper bound to double
+    Ncmax_scale = MAX(2.0*Ncgmin,Ncmax/cell_scale);
 
     if (np <= Ncmax_scale) continue;
 
@@ -485,7 +491,6 @@ void Collide::group_bt(int istart, int iend)
   pij[2][0] = pij[0][2];
   pij[2][1] = pij[1][2];
 
-
   // first determine if group needs to be divided
   int cp = istart;
   // weights on each side
@@ -494,9 +499,10 @@ void Collide::group_bt(int istart, int iend)
   if (np > Ngmax+gbuf) {
     // Compute covariance matrix
     double Rij[3][3];
+    double scale = fabs(pij[0][0]+pij[1][1]+pij[2][2])/3.0;
     for (int i = 0; i < 3; i++)
       for (int j = 0; j < 3; j++)
-        Rij[i][j] = pij[i][j]/gsum;
+        Rij[i][j] = pij[i][j]/scale;
         //Rij[i][j] = M[i][j] - V[i]*V[j];
 
     // Find eigenpairs
@@ -504,17 +510,18 @@ void Collide::group_bt(int istart, int iend)
     // columns are eigenvectors
     // last negative one is to output in decreasing order
     double eval[3], evec[3][3];
-    int ierror = MathEigen::jacobi3(Rij,eval,evec,-1);
+    jacobiEigen(Rij,eval,evec);
 
     // Find largest eigenpair
 
     double maxeval;
     double maxevec[3]; // normal of splitting plane
 
+    // ignore negative eigenvalues (should never occur)
     maxeval = 0;
     for (int i = 0; i < 3; i++) {
-      if (std::abs(eval[i]) > maxeval) {
-        maxeval = std::abs(eval[i]);
+      if (eval[i] > maxeval) {
+        maxeval = fabs(eval[i]);
         for (int j = 0; j < 3; j++) {
           maxevec[j] = evec[j][i];  
         }
@@ -717,8 +724,11 @@ void Collide::group_bt(int istart, int iend)
     }
   }
 
+  // force merge
+  if (gL == 0.0 or gR == 0.0) cp = istart;
+
   // if group is small enough or poor division, merge the particles
-  if (cp == istart or cp == iend-1) {
+  if (cp <= istart) {
     /*
     printf("rho: %g; n: %i; Ngmin: %i\n", gsum, np, Ngmin);
     printf("KE: %g\n", mVV[0][0]+mVV[1][1]+mVV[2][2]);
@@ -733,9 +743,11 @@ void Collide::group_bt(int istart, int iend)
     if (reduction_type == ENERGY) {
       // specific kinetic energy in center of mass reference
       double E = (pij[0][0] + pij[1][1] + pij[2][2])/gsum;
+      if (E <= 1e-16) E = 0.0;
       reduce(istart, iend, gsum, V, E, Erot);
     } else if (reduction_type == HEAT) {
       double E = (pij[0][0] + pij[1][1] + pij[2][2])/gsum;
+      if (E <= 1e-16) E = 0.0;
       // divide heat flux by mass of species because only
       // ... total weight is passed.
       reduce(istart, iend, gsum, V, E, q, Erot);

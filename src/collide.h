@@ -155,6 +155,9 @@ class Collide : protected Pointers {
   int balance_flag;
   double bst_thresh; // same as above but for weights
 
+  // for support with adaptive meshing
+  int adapt_flag;
+
   // inline functions
   // add particle N to Igroup and set its g2p entry in plist to K
   // delete Ith entry in Igroup and reset g2p entries as well
@@ -205,6 +208,8 @@ class Collide : protected Pointers {
   void reduce(int, int, double, double *, double, double *, double);
   void reduce(int, int, double, double *, double *, double [3][3], double);
   void remove_tiny();
+  bool jacobiEigen(double const[3][3], double *, double [3][3], int max_iterations = 1000, double max_tolerance = 1.0e-12);
+  void jacobiRotate(double [3][3], double [3][3], int , int);
 
   // misc
 
