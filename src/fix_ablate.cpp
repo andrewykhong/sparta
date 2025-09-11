@@ -464,10 +464,6 @@ void FixAblate::store_corners(int nx_caller, int ny_caller, int nz_caller,
         }
       } // END corners
     } // END cells
-  } else {
-    for (int icell = 0; icell < nglocal; icell++)
-      for (int m = 0; m < ncorner; m++)
-        corner_rho[icell][m] = scale;
   }
 
   // set mask for each cell to match to reaction set
@@ -523,11 +519,6 @@ void FixAblate::store_corners(int nx_caller, int ny_caller, int nz_caller,
         else
           cell_react[icell] = static_cast<int>(user_phi_react[ifac][1]);
       }
-
-      //if (cavg > 200.0 && cell_react[icell] != 1) error->one(FLERR,"wrong hi");
-      //if (cavg < 55.0 && cell_react[icell] != 0) error->one(FLERR,"wrong lo");
-      //if (cell_react[icell] != 0 && cell_react[icell] != 1) error->one(FLERR,"inval");
-
     } // END cells
   }
 
@@ -581,21 +572,6 @@ void FixAblate::store_corners(int nx_caller, int ny_caller, int nz_caller,
     } // END cells
 
     sync_max();
-
-    /*for (int icell = 0; icell < nglocal; icell++) {
-      if (!(cinfo[icell].mask & groupbit)) continue;
-      for (int m = 0; m < ncorner; m++) {
-        if (multi_val_flag) {
-          for (int n = 0; n < nmultiv; n++)
-            if (mvalues[icell][m][n] < 255.0)
-              printf("[%i][%i] - %4.3e\n", icell, m, mvalues[icell][m][n]);
-        } else {
-            if (cvalues[icell][m] < 255.0)
-          printf("[%i][%i] - %4.3e\n", icell, m, cvalues[icell][m]);
-        }
-      } // END corners
-        
-    } // END cells*/
   }
 
   // push corner pt values with fully external/internal neighbors to 0 or 255
@@ -1081,6 +1057,7 @@ void FixAblate::set_delta()
   int i,j;
 
   double prefactor = nevery;
+  if (!rhoflag) prefactor *= scale;
   for (i = 0; i < nglocal; i++) celldelta[i] = 0.0;
 
   // compute/fix may invoke computes so wrap with clear/add

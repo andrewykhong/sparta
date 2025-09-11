@@ -120,6 +120,10 @@ class Collide : protected Pointers {
   int maxelectron;              // max # elist can hold
   Particle::OnePart *elist;     // list of ambipolar electrons
                                 // for one grid cell or pair of groups in cell
+
+  // for ablation
+  int mass_constant_flag;
+
   // Kokkos data
 
   int oldgroups;         // pass from parent to child class
