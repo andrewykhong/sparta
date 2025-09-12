@@ -43,7 +43,7 @@ using namespace MathConst;
 enum{CVAL,SVAL,IVAL,INVAL};
 enum{XLO,XHI,YLO,YHI,ZLO,ZHI,INTERIOR};         // same as Domain
 enum{NCHILD,NPARENT,NUNKNOWN,NPBCHILD,NPBPARENT,NPBUNKNOWN,NBOUND};  // Update
-enum{INOUT,VOXEL,AVE,MULTI}; // how to mark corner values
+enum{INOUT,VOXEL,AVE,MULTI,SPHERE_AVE,SPHERE_MULTI}; // how to mark corner values
 
 /* ---------------------------------------------------------------------- */
 
@@ -132,7 +132,7 @@ void CreateISurf::command(int narg, char **arg)
   if (domain->axisymmetric)
     error->all(FLERR,"Cannot create_isurf for axisymmetric domains");
 
-  if (narg < 4) error->all(FLERR,"Illegal create_isurf command");
+  if (narg != 3) error->all(FLERR,"Illegal create_isurf command");
 
   // grid group
 
@@ -157,17 +157,26 @@ void CreateISurf::command(int narg, char **arg)
   thresh = input->numeric(FLERR,arg[2]);
   if (thresh < 0 || thresh > 255)
     error->all(FLERR,"Create_isurf thresh must be bounded as (0,255)");
-  int ithresh = static_cast<int> (thresh);
-  if (ithresh == thresh)
-    error->all(FLERR,"An integer value for create_isurf thresh is not allowed");
 
-  // mode to determine corner values
+  // mode to determine corner values from fix_ablate
 
-  if (strcmp(arg[3],"inout") == 0) ctype = INOUT;
-  else if (strcmp(arg[3],"voxel") == 0) ctype = VOXEL;
-  else if (strcmp(arg[3],"ave") == 0) ctype = AVE;
-  else if (strcmp(arg[3],"multi") == 0) ctype = MULTI;
-  else error->all(FLERR,"Create_isurf corner mode is invalid");
+  int mflag = ablate->get_multivalflag();
+  int sflag = ablate->get_sphereflag();
+
+  if (mflag) {
+    if (sflag) ctype = SPHERE_MULTI;
+    else ctype = MULTI;
+  }
+  else if (sflag) ctype = SPHERE_AVE;
+  else ctype = VOXEL;
+
+  //if (strcmp(arg[3],"inout") == 0) ctype = INOUT;
+  //else if (strcmp(arg[3],"voxel") == 0) ctype = VOXEL;
+  //else if (strcmp(arg[3],"ave") == 0) ctype = AVE;
+  //else if (strcmp(arg[3],"multi") == 0) ctype = MULTI;
+  //else if (strcmp(arg[3],"sphere_ave") == 0) ctype = SPHERE_AVE;
+  //else if (strcmp(arg[3],"sphere_multi") == 0) ctype = SPHERE_MULTI;
+  //else error->all(FLERR,"Create_isurf corner mode is invalid");
 
   // check if grid group is a uniform grid
 
@@ -181,7 +190,7 @@ void CreateISurf::command(int narg, char **arg)
 
   cout = 0.0;
   cin = 255.0;
-  if (ctype == MULTI) set_multi();
+  if (ctype == MULTI || ctype == SPHERE_MULTI) set_multi();
   else set_corners();
 
   // remove all explicit surfs
@@ -200,6 +209,9 @@ void CreateISurf::command(int narg, char **arg)
   tvalues = NULL;
   int pushflag = 0;
   char *sgroupID = NULL;
+  //int sphereflag = 0;
+  //if (ctype == SPHERE_AVE || ctype == SPHERE_MULTI) sphereflag = 1;
+
   ablate->store_corners(nxyz[0],nxyz[1],nxyz[2],corner,xyzsize,cvalues,
                         mulvalues,tvalues,thresh,sgroupID,pushflag);
 
@@ -260,6 +272,8 @@ void CreateISurf::set_corners()
       tmp_cvalues[ic][jc] = -1.0;
       svalues[ic][jc] = -1;
       mvalues[ic][jc] = -1.0;
+      // need to initialize if region is not all
+      cvalues[ic][jc] = 0.0;
       for (int kc = 0; kc < nmulti; kc++) ivalues[ic][jc][kc] = -1.0;
     }
   }
@@ -351,8 +365,12 @@ void CreateISurf::set_multi()
     for (int jc = 0; jc < ncorner; jc++) {
       svalues[ic][jc] = -1;
       mvalues[ic][jc] = -1.0;
-      for (int kc = 0; kc < nmulti; kc++) ivalues[ic][jc][kc] = -1.0;
-      for (int kc = 0; kc < nmulti; kc++) tmp_mulvalues[ic][jc][kc] = -1.0;
+      for (int kc = 0; kc < nmulti; kc++) {
+        ivalues[ic][jc][kc] = -1.0;
+        tmp_mulvalues[ic][jc][kc] = -1.0;
+        // need to initialize if region is not all
+        mulvalues[ic][jc][kc] = 0.0;
+      }
     }
   }
 
@@ -1142,6 +1160,7 @@ void CreateISurf::set_inout()
   Grid::ChildInfo *cinfo = grid->cinfo;
 
   int itype, sval;
+  double dx,dy,dz,cvol, sfrac;
   for (int icell = 0; icell < nglocal; icell++) {
     if (!(cinfo[icell].mask & groupbit)) continue;
     if (cells[icell].nsplit <= 0) continue;
@@ -1156,10 +1175,18 @@ void CreateISurf::set_inout()
 
     if (itype == 2) sval = 1; // fully inside so set all corner values to max
     else if (itype == 1) sval = 0; // fully outside so set all corners to min
-    else continue;
+    else {
+      cvol = cinfo[icell].volume;
+      dx = cells[icell].hi[0] - cells[icell].lo[0];
+      dy = cells[icell].hi[1] - cells[icell].lo[1];
+      dz = cells[icell].hi[2] - cells[icell].lo[2];
+      sfrac = (dx*dy*dz - cvol) / (dx*dy*dz);
+      if (sfrac <= 1e-4) sval = 0;
+      else sval = -1;
+    }
+    if (sval < 0) continue;
 
-    for (int m = 0; m < ncorner; m++)
-      if (svalues[icell][m] < 0) svalues[icell][m] = sval;
+    for (int m = 0; m < ncorner; m++) svalues[icell][m] = MAX(svalues[icell][m],sval);
 
   }
 }
@@ -1507,8 +1534,8 @@ void CreateISurf::set_cvalues()
 
   if (ctype == INOUT) set_cvalues_inout();
   else if (ctype == VOXEL) set_cvalues_voxel();
-  else if (ctype == AVE) set_cvalues_ave();
-  else if (ctype == MULTI) set_cvalues_multi();
+  else if (ctype == AVE || ctype == SPHERE_AVE) set_cvalues_ave();
+  else if (ctype == MULTI || ctype == SPHERE_MULTI) set_cvalues_multi();
 }
 
 /* ----------------------------------------------------------------------
@@ -1552,9 +1579,8 @@ void CreateISurf::set_cvalues_voxel()
     dy = cells[icell].hi[1] - cells[icell].lo[1];
     dz = cells[icell].hi[2] - cells[icell].lo[2];
     sfrac = (dx*dy*dz - cvol) / (dx*dy*dz);
-
-    if (sfrac < 0.0 || sfrac > 1.0)
-      error->one(FLERR,"Calculated solid fraction above one or negative");
+    sfrac = MAX(sfrac,0.0);
+    sfrac = MIN(sfrac,1.0);
 
     for (int ic = 0; ic < ncorner; ic++)
       tmp_cvalues[icell][ic] = MIN(MAX(sfrac*cin,0.0),255.0);
@@ -1596,7 +1622,8 @@ void CreateISurf::set_cvalues_ave()
           ivalsum /= nval;
           if (ivalsum > 1.0)
             error->one(FLERR,"Calculated vertex location outside cell");
-          tmp_cvalues[icell][ic] = MAX(param2cval(ivalsum,0.0),0.0);
+          if (ctype == AVE) tmp_cvalues[icell][ic] = MAX(param2cval(ivalsum,0.0),0.0);
+          else tmp_cvalues[icell][ic] = ivalsum*cin;
         }
       } // end svalues
 
@@ -1654,9 +1681,11 @@ void CreateISurf::set_cvalues_multi()
           if (svalues[icell][ic] == 0) cval = cout;
           else cval = cin;
         } else if (svalues[icell][ic] == 1) {
-          cval = param2cval(ival,0.0);
+          if (ctype == SPHERE_MULTI) cval = ival*cin;
+          else cval = param2cval(ival,0.0);
         } else {
-          cval = param2cval(ival,255.0);
+          if (ctype == SPHERE_MULTI) cval = 0.0; // set all outside as zero
+          else cval = param2cval(ival,255.0);
         }
         tmp_mulvalues[icell][ic][k] = cval;
       } // end multi

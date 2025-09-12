@@ -125,6 +125,7 @@ class Collide : protected Pointers {
   Particle::OnePart *elist;     // list of ambipolar electrons
 
   // for one grid cell or pair of groups in cell
+
   // Kokkos data
 
   int oldgroups;         // pass from parent to child class

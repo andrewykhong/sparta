@@ -12,26 +12,24 @@
    See the README file in the top-level SPARTA directory.
 ------------------------------------------------------------------------- */
 
-#ifndef SPARTA_MARCHING_SQUARES_H
-#define SPARTA_MARCHING_SQUARES_H
+#ifndef SPARTA_MARCHING_CIRCLES_H
+#define SPARTA_MARCHING_CIRCLES_H
 
 #include "pointers.h"
 
 namespace SPARTA_NS {
 
-class MarchingSquares : protected Pointers {
+class MarchingCircles : protected Pointers {
  public:
-  MarchingSquares(class SPARTA *, int, double);
-  ~MarchingSquares() {}
+  MarchingCircles(class SPARTA *, int);
+  ~MarchingCircles() {}
   void invoke(double **, double ***, int *);
   double mindist;
-  int sphereflag;
 
  private:
   int ggroup;
   double thresh;
 
-  double interpolate(double, double, double, double);
   double extrapolate(double, double, double, double);
 };
 

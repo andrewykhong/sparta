@@ -50,17 +50,22 @@ class FixAblate : public Fix {
 
   void store_corners(int, int, int, double *, double *,
                      double **, double ***, int *, double, char *, int);
-  double mindist;             // min fractional distance between any grid corner pt
-                              //   and a generated tri vertex or line segment endpt
+
+  int get_sphereflag();
+  int get_multivalflag();
+
+  // need for write_isurf + create_isurf
+  double ***mvalues;      // corner multi values
+
  protected:
   int me;
   int groupbit,which,argindex,icompute,ifix,ivariable,maxrandom;
   double scale;
   char *idsource;
   int storeflag;
-  int multi_val_flag;
   int multi_dec_flag;
   int minmaxflag;
+  double minmaxthresh;
   int ncorner;
   int nmultiv;
   int sgroupbit;
@@ -70,13 +75,17 @@ class FixAblate : public Fix {
 
   int nglocal;            // # of owned grid cells
 
+  int multi_val_flag;
+  int sphereflag;
   double **cvalues;       // corner point values
-  double ***mvalues;      // corner multi values
+  double **avalues;       // corner "area" values
   int *tvalues;           // per-cell type value
   int tvalues_flag;       // 1 if tvalues is defined (by ReadIsurf)
 
   double corner_inside_min;   // min allowed value for an inside corner point
   double corner_outside_max;  // max allowed value for an outside corner point
+  double mindist;             // min fractional distance between any grid corner pt
+                              //   and a generated tri vertex or line segment endpt
 
   int **ixyz;             // ix,iy,iz indices (1 to Nxyz) of my cells
                           // in 2d/3d ablate grid (iz = 1 for 2d)
@@ -84,12 +93,28 @@ class FixAblate : public Fix {
   int **mcflags;
 
   double *celldelta;       // per-cell delta from compute or fix source
+  double *cellarea;        // per-cell surface area
+  double *cellarea_ghost;
   double **cdelta;         // per-corner point deltas
   double **cdelta_ghost;   // ditto for my ghost cells communicated to me
   double ***mdelta;        // cdelta for multivalues
   double ***mdelta_ghost;  // ditto for my ghost cells (multivalues)
   double **nvert;          // number of vertices around each corner
   double **nvert_ghost;    // ditto for my ghost cells communicated to me
+
+  int rhoflag;           // flag for setting per-corner mass densities
+  int nrho;              // number of densities
+  double **corner_rho;   // per-corner density
+  double **user_phi_rho; // user-requested per-corner density ranges
+
+  int fillflag;          // flag to fill empty corners of cells
+  int fillgroupbit;      // mask for which cells to fill
+  double fillvalue;      // value to fill empty cells
+
+  int reactflag;           // flag for setting per-grid surface reaction models
+  int nreact;              // number of surface models
+  int index_cell_react;    // custom per-cell reaction model
+  double **user_phi_react; // user-requested per-cell reaction model types
 
   int maxgrid;             // max size of per-cell vectors/arrays
   int maxghost;            // max size of cdelta_ghost
@@ -109,8 +134,16 @@ class FixAblate : public Fix {
 
   int refcorners[8];
 
+  // count total mass loss due to undershoot
+  double closs;
+  double cellloss; // total number of cells with solid
+
+  int carryflag;
+
   class MarchingSquares *ms;
   class MarchingCubes *mc;
+  class MarchingCircles *mci;
+  class MarchingSpheres *msp;
   class RanKnuth *random;
 
   void process_args(int, char **);
@@ -129,11 +162,21 @@ class FixAblate : public Fix {
   void decrement_multiv_multid_inside();
 
   void sync();
+  void sync_max();
   void sync_multiv();
   void sync_multid_outside();
   void sync_multid_inside();
   void sync_multiv_multid_outside();
   void sync_multiv_multid_inside();
+
+  // for Marching spheres
+  void compute_surface_area();
+  void set_total_area();
+  void decrement_sphere();
+  int sync_sphere(int);
+  void count_interface();
+  void pass_remain(int);
+  void pass_remain_multi(int);
 
   void mark_corners_2d(int);
   void mark_corners_3d(int);

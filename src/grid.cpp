@@ -1583,7 +1583,7 @@ void Grid::set_inout()
                          "jcell %d id " CELLINT_FORMAT " marktype %d jtype %d\n",
                          me,icell,cells[icell].id,iface,jcell,cells[jcell].id,
                          marktype,jtype);
-                  error->one(FLERR,"Cell type mis-match when marking on self");
+                  //error->one(FLERR,"Cell type mis-match when marking on self");
                 }
               }
 
@@ -1667,8 +1667,8 @@ void Grid::set_inout()
                            "jtype %d\n",
                            me,icell,cells[icell].id,iface,jcell,cells[jcell].id,
                            marktype,jtype);
-                    error->one(FLERR,
-                               "Cell type mis-match when marking on self");
+                    //error->one(FLERR,
+                    //           "Cell type mis-match when marking on self");
                   }
                 }
 
@@ -1762,7 +1762,7 @@ void Grid::set_inout()
           printf("CELL3 me %d jcell %d id " CELLINT_FORMAT
                  " marktype %d jtype %d\n",
                  me,jcell,cells[jcell].id,marktype,jtype);
-          error->one(FLERR,"Cell type mis-match when marking on neigh proc");
+          //error->one(FLERR,"Cell type mis-match when marking on neigh proc");
         }
       }
     }

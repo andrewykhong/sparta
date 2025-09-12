@@ -12,20 +12,21 @@
    See the README file in the top-level SPARTA directory.
 ------------------------------------------------------------------------- */
 
-#ifndef SPARTA_MARCHING_CUBES_H
-#define SPARTA_MARCHING_CUBES_H
+#ifndef SPARTA_MARCHING_SPHERES_H
+#define SPARTA_MARCHING_SPHERES_H
 
 #include "pointers.h"
 #include "surf.h"
 
 namespace SPARTA_NS {
 
-class MarchingCubes : protected Pointers {
+class MarchingSpheres : protected Pointers {
  public:
-  MarchingCubes(class SPARTA *, int, double);
-  ~MarchingCubes() {}
+  MarchingSpheres(class SPARTA *, int);
+  ~MarchingSpheres() {}
   void invoke(double **, double ***, int *, int **);
   void cleanup();
+
   double mindist;
   int sphereflag;
 
@@ -34,7 +35,7 @@ class MarchingCubes : protected Pointers {
   double thresh;
 
   double *lo,*hi;
-  double v000,v001,v010,v011,v100,v101,v110,v111;
+  int v000,v001,v010,v011,v100,v101,v110,v111;
   double v000iso,v001iso,v010iso,v011iso,v100iso,v101iso,v110iso,v111iso;
   double inval[8][6];
   double i0,i1,i2,i3,i4,i5,i6,i7,i8,i9,i10,i11;
@@ -53,17 +54,11 @@ class MarchingCubes : protected Pointers {
     Surf::Tri tri1,tri2;
   };
 
-  double interpolate(double, double, double, double);
   double extrapolate(double, double, double, double);
   int add_triangle(int *, int);
+  int add_triangle_inner(int *, int);
   bool test_face(int);
-  bool test_interior(int, int);
-  bool modified_test_interior(int, int);
-  int interior_ambiguity(int, int);
-  int interior_ambiguity_verification(int);
-  bool interior_test_case13();
-  int MS_test_interior();
-  void print_cube();
+  bool test_interior();
 };
 
 }

@@ -226,6 +226,9 @@ void CollideVSS::setup_collision(Particle::OnePart *ip, Particle::OnePart *jp)
   double imass = precoln.imass = species[isp].mass;
   double jmass = precoln.jmass = species[jsp].mass;
 
+  if (mass_constant_flag)
+    imass = precoln.imass = precoln.imass = jmass;
+
   precoln.etrans = 0.5 * params[isp][jsp].mr * precoln.vr2;
   precoln.erot = ip->erot + jp->erot;
   precoln.evib = ip->evib + jp->evib;
@@ -386,6 +389,7 @@ void CollideVSS::SCATTER_TwoBodyScattering(Particle::OnePart *ip,
   int jsp = jp->ispecies;
   double mass_i = species[isp].mass;
   double mass_j = species[jsp].mass;
+  if (mass_constant_flag) mass_i = mass_j;
 
   double alpha_r = 1.0 / params[isp][jsp].alpha;
 
@@ -584,6 +588,8 @@ void CollideVSS::SCATTER_ThreeBodyScattering(Particle::OnePart *ip,
   double mass_i = species[isp].mass;
   double mass_j = species[jsp].mass;
   double mass_k = species[ksp].mass;
+  if (mass_constant_flag) mass_i = mass_k = mass_j;
+
   double mass_ij = mass_i + mass_j;
   double *vi = ip->v;
   double *vj = jp->v;
@@ -923,6 +929,9 @@ void CollideVSS::read_param_file(char *fname)
     for ( int j = i+1; j<nparams; j++) {
       params[i][j].mr = params[j][i].mr = particle->species[i].mass *
         particle->species[j].mass / (particle->species[i].mass + particle->species[j].mass);
+
+      if (mass_constant_flag)
+        params[i][j].mr = params[j][i].mr = particle->species[j].mass * 0.5;
 
       if(params[i][j].diam < 0) params[i][j].diam = params[j][i].diam =
                                   0.5*(params[i][i].diam + params[j][j].diam);
