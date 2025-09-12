@@ -47,16 +47,7 @@ ComputeSurfKokkos::ComputeSurfKokkos(SPARTA *sparta) :
   sr_kk_global_copy{VAL_2(KKCopy<SurfReactGlobalKokkos>(sparta))},
   sr_kk_prob_copy{VAL_2(KKCopy<SurfReactProbKokkos>(sparta))}
 {
-  hash = NULL;
-  which = NULL;
-  array_surf_tally = NULL;
-  tally2surf = NULL;
-  array_surf = NULL;
-  vector_surf = NULL;
-  normflux = NULL;
-  id = NULL;
-  style = NULL;
-  tlist = NULL;
+  copy = 1;
 }
 
 /* ---------------------------------------------------------------------- */
@@ -64,21 +55,16 @@ ComputeSurfKokkos::ComputeSurfKokkos(SPARTA *sparta) :
 ComputeSurfKokkos::~ComputeSurfKokkos()
 {
   if (uncopy) {
-    for (int i=0; i<KOKKOS_MAX_SURF_REACT_PER_TYPE; i++) {
+    for (int i = 0; i < KOKKOS_MAX_SURF_REACT_PER_TYPE; i++) {
       sr_kk_global_copy[i].uncopy();
       sr_kk_prob_copy[i].uncopy();
     }
   }
 
-  if (copy || copymode) return;
+  if (copy) return;
 
   memoryKK->destroy_kokkos(k_tally2surf,tally2surf);
   memoryKK->destroy_kokkos(k_array_surf_tally,array_surf_tally);
-
-  for (int i = 0; i < KOKKOS_MAX_SURF_REACT_PER_TYPE; i++) {
-    sr_kk_global_copy[i].uncopy();
-    sr_kk_prob_copy[i].uncopy();
-  }
 }
 
 /* ---------------------------------------------------------------------- */
@@ -115,12 +101,12 @@ void ComputeSurfKokkos::init_normflux()
 
   // Cannot realloc inside a Kokkos parallel region, so size tally2surf as nsurf
   memoryKK->grow_kokkos(k_tally2surf,tally2surf,nsurf,"surf:tally2surf");
-  d_tally2surf = k_tally2surf.d_view;
+  d_tally2surf = k_tally2surf.view_device();
   d_surf2tally = DAT::t_int_1d("surf:surf2tally",nsurf);
   Kokkos::deep_copy(d_surf2tally,-1);
 
   memoryKK->grow_kokkos(k_array_surf_tally,array_surf_tally,nsurf,ntotal,"surf:array_surf_tally");
-  d_array_surf_tally = k_array_surf_tally.d_view;
+  d_array_surf_tally = k_array_surf_tally.view_device();
 }
 
 /* ---------------------------------------------------------------------- */
@@ -144,13 +130,13 @@ void ComputeSurfKokkos::pre_surf_tally()
 
   ParticleKokkos* particle_kk = (ParticleKokkos*) particle;
   particle_kk->sync(Device,SPECIES_MASK);
-  d_species = particle_kk->k_species.d_view;
-  d_s2g = particle_kk->k_species2group.d_view;
+  d_species = particle_kk->k_species.view_device();
+  d_s2g = particle_kk->k_species2group.view_device();
 
   SurfKokkos* surf_kk = (SurfKokkos*) surf;
   surf_kk->sync(Device,ALL_MASK);
-  d_lines = surf_kk->k_lines.d_view;
-  d_tris = surf_kk->k_tris.d_view;
+  d_lines = surf_kk->k_lines.view_device();
+  d_tris = surf_kk->k_tris.view_device();
 
   need_dup = sparta->kokkos->need_dup<DeviceType>();
   if (need_dup)
@@ -249,9 +235,9 @@ void ComputeSurfKokkos::grow_tally()
   int nsurf = surf->nlocal + surf->nghost;
 
   memoryKK->grow_kokkos(k_tally2surf,tally2surf,nsurf,"surf:tally2surf");
-  d_tally2surf = k_tally2surf.d_view;
+  d_tally2surf = k_tally2surf.view_device();
 
   memoryKK->grow_kokkos(k_array_surf_tally,array_surf_tally,nsurf,ntotal,"surf:array_surf_tally");
-  d_array_surf_tally = k_array_surf_tally.d_view;
+  d_array_surf_tally = k_array_surf_tally.view_device();
 }
 

@@ -39,20 +39,15 @@ ComputeBoundaryKokkos::ComputeBoundaryKokkos(SPARTA *sparta, int narg, char **ar
   memory->destroy(myarray);
   memoryKK->create_kokkos(k_array,array,size_array_rows,size_array_cols,"boundary:array");
   memoryKK->create_kokkos(k_myarray,myarray,size_array_rows,size_array_cols,"boundary:myarray");
-  d_myarray = k_myarray.d_view;
-  d_array = k_array.d_view;
+  d_myarray = k_myarray.view_device();
+  d_array = k_array.view_device();
   d_which = DAT::t_int_1d("boundary:which",nvalue);
 }
 
 ComputeBoundaryKokkos::ComputeBoundaryKokkos(SPARTA *sparta) :
   ComputeBoundary(sparta)
 {
-  array = NULL;
-  myarray = NULL;
-  which = NULL;
-  id = NULL;
-  style = NULL;
-  tlist = NULL;
+  copy = 1;
 }
 
 /* ---------------------------------------------------------------------- */
@@ -93,7 +88,7 @@ void ComputeBoundaryKokkos::compute_array()
   } else {
     k_myarray.modify_device();
     k_myarray.sync_host();
-    MPI_Allreduce(k_myarray.h_view.data(),k_array.h_view.data(),nrow*ntotal,
+    MPI_Allreduce(k_myarray.view_host().data(),k_array.view_host().data(),nrow*ntotal,
                   MPI_DOUBLE,MPI_SUM,world);
   }
 
@@ -124,8 +119,8 @@ void ComputeBoundaryKokkos::pre_boundary_tally()
 
   ParticleKokkos* particle_kk = (ParticleKokkos*) particle;
   particle_kk->sync(Device,PARTICLE_MASK|SPECIES_MASK);
-  d_species = particle_kk->k_species.d_view;
-  d_s2g = particle_kk->k_species2group.d_view;
+  d_species = particle_kk->k_species.view_device();
+  d_s2g = particle_kk->k_species2group.view_device();
 
   need_dup = sparta->kokkos->need_dup<DeviceType>();
   if (need_dup)
