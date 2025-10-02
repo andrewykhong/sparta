@@ -354,6 +354,14 @@ void Collide::init()
     vre_first = 0;
   }
 
+  // custome particle attribute for per-particle weights
+  if (swpm_flag) {
+    if(particle->find_custom((char *) "collide:particle_weights"))
+      error->one(FLERR,"Per-particle weights already exists");
+    index_weight = 
+      particle->add_custom((char *)  "collide:particle_weights",DOUBLE,0);
+  }
+
   // initialize running stats before each run
 
   ncollide_running = nattempt_running = nreact_running = 0;

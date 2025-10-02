@@ -67,6 +67,8 @@ void Collide::collisions_one_sw()
   double isw;
   double cell_scale;
 
+  int *weights = particle->eivec[particle->ewhich[index_weight]];
+
   for (int icell = 0; icell < nglocal; icell++) {
     np = cinfo[icell].count;
     if (np <= 1) continue;
